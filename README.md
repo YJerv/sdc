@@ -16,7 +16,7 @@ Then open <http://127.0.0.1:8080>. Choose a STEP file, or drop one onto the page
 
 Files of about 50 MB and above show a warning before they are read. They are still processed on the device.
 
-**Create drawing** is present and switched off. Drawing sheets are the next step.
+**Create drawing** makes an A3 landscape sheet in third-angle projection: front, top above the front, right side to the right, and an isometric view. Choose which face is the front, and rotate it by 90° before generating. The preview zooms and pans. Export PNG and Export PDF run on this device and are free for now; `js/export-policy.js` is the hook for a later one-off unlock.
 
 The layout is meant for a phone as well as a desktop, including Chrome on Android. Use the theme button, or leave it to follow the system.
 
@@ -27,7 +27,7 @@ npm install
 npm test
 ```
 
-The test loads every file in `test/fixtures` with occt-import-js and checks that each one parses to at least one mesh and a sensible bounding box, in millimetres. It prints size and load time per file.
+The tests load every file in `test/fixtures`. One checks that occt-import-js returns meshes and a sensible bounding box. The other builds an A3 drawing and checks the four views, the scale, the overall dimensions and that dimension text does not overlap.
 
 ## Static hosting
 

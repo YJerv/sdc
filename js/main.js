@@ -6,6 +6,8 @@ import {
   needsLargeFileWarning,
 } from './step-model.js';
 import { createViewer } from './viewer.js';
+import { createDrawing } from './drawing/create.js';
+import { exportDrawingPdf, exportDrawingPng } from './export-client.js';
 
 const fileInput = document.querySelector('#file-input');
 const stage = document.querySelector('#stage');
@@ -26,6 +28,15 @@ const themeToggle = document.querySelector('#theme-toggle');
 const largeDialog = document.querySelector('#large-file');
 const largeText = document.querySelector('#large-file-text');
 const viewButtons = [...document.querySelectorAll('[data-view]')];
+const createButton = document.querySelector('#create-drawing');
+const drawSetup = document.querySelector('#draw-setup');
+const frontFace = document.querySelector('#front-face');
+const rotateButton = document.querySelector('#rotate-quarter');
+const rotateState = document.querySelector('#rotate-state');
+const sheetPreview = document.querySelector('#sheet-preview');
+const sheetStage = document.querySelector('#sheet-stage');
+const sheetViewport = document.querySelector('#sheet-viewport');
+const sheetNote = document.querySelector('#sheet-note');
 
 const canvas = document.querySelector('#view');
 const viewer = createViewer(canvas);
@@ -38,6 +49,13 @@ if (storedTheme === 'light' || storedTheme === 'dark') chosenTheme = storedTheme
 let worker = null;
 let requestId = 0;
 let dragDepth = 0;
+let currentResult = null;
+let currentName = '';
+let quarterTurns = 0;
+let currentSvg = '';
+let sheetZoom = 1;
+let sheetPanX = 0;
+let sheetPanY = 0;
 
 function systemTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -108,6 +126,10 @@ function resetDetails() {
   stageTitle.textContent = '';
   empty.hidden = false;
   setViewsEnabled(false);
+  currentResult = null;
+  currentName = '';
+  createButton.disabled = true;
+  drawSetup.hidden = true;
 }
 
 function renderNode(node, fallback, isRoot) {
@@ -154,6 +176,10 @@ function showModel(file, result, loadMs) {
   clearError();
   setViewsEnabled(true);
   setBusy(false);
+  currentResult = result;
+  currentName = file.name.replace(/\.(step|stp)$/i, '');
+  createButton.disabled = false;
+  drawSetup.hidden = false;
 }
 
 function getWorker() {
@@ -282,6 +308,138 @@ for (const button of viewButtons) {
     else viewer.frame(viewer.views[name]);
   });
 }
+
+const FACE_LABELS = {
+  negY: '−Y',
+  posY: '+Y',
+  posX: '+X',
+  negX: '−X',
+  posZ: '+Z',
+  negZ: '−Z',
+};
+
+function updateRotateState() {
+  const face = FACE_LABELS[frontFace.value] || '−Y';
+  rotateState.textContent = `Rotation ${quarterTurns * 90}°. The front view looks at the ${face} face.`;
+}
+
+rotateButton.addEventListener('click', () => {
+  quarterTurns = (quarterTurns + 1) % 4;
+  updateRotateState();
+});
+frontFace.addEventListener('change', updateRotateState);
+
+function applySheetTransform() {
+  sheetStage.style.transform = `translate(${sheetPanX}px, ${sheetPanY}px) scale(${sheetZoom})`;
+}
+
+function showSheet(drawing) {
+  currentSvg = drawing.svg;
+  sheetZoom = 1;
+  sheetPanX = 0;
+  sheetPanY = 0;
+  applySheetTransform();
+  sheetStage.innerHTML = drawing.svg;
+  const extra = drawing.warnings.length ? ` ${drawing.warnings[0]}` : '';
+  sheetNote.textContent = `Scale ${drawing.scaleLabel}. Exports are free for now. A one-off unlock will be added later.${extra}`;
+  sheetPreview.hidden = false;
+}
+
+createButton.addEventListener('click', () => {
+  if (!currentResult || createButton.disabled) return;
+  setBusy(true, 'Creating the drawing…');
+  const result = currentResult;
+  const title = currentName || 'Untitled';
+  const front = frontFace.value;
+  const turn = quarterTurns;
+  requestAnimationFrame(() => {
+    try {
+      const drawing = createDrawing(result, { title, front, turn });
+      showSheet(drawing);
+      setBusy(false);
+      setViewsEnabled(true);
+    } catch (error) {
+      showError('The drawing could not be created from this model.');
+    }
+  });
+});
+
+document.querySelector('#sheet-back').addEventListener('click', () => {
+  sheetPreview.hidden = true;
+});
+document.querySelector('#sheet-in').addEventListener('click', () => {
+  sheetZoom = Math.min(6, sheetZoom * 1.2);
+  applySheetTransform();
+});
+document.querySelector('#sheet-out').addEventListener('click', () => {
+  sheetZoom = Math.max(0.3, sheetZoom / 1.2);
+  applySheetTransform();
+});
+document.querySelector('#sheet-fit').addEventListener('click', () => {
+  sheetZoom = 1;
+  sheetPanX = 0;
+  sheetPanY = 0;
+  applySheetTransform();
+});
+
+sheetViewport.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  sheetZoom = Math.min(6, Math.max(0.3, sheetZoom * (event.deltaY < 0 ? 1.1 : 0.9)));
+  applySheetTransform();
+}, { passive: false });
+
+let drag = null;
+const pointers = new Map();
+sheetViewport.addEventListener('pointerdown', (event) => {
+  sheetViewport.setPointerCapture(event.pointerId);
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  drag = { x: event.clientX, y: event.clientY, panX: sheetPanX, panY: sheetPanY };
+});
+sheetViewport.addEventListener('pointermove', (event) => {
+  if (!pointers.has(event.pointerId)) return;
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    if (drag.pinch) {
+      sheetZoom = Math.min(6, Math.max(0.3, drag.zoom * (dist / drag.pinch)));
+      applySheetTransform();
+    } else {
+      drag.pinch = dist;
+      drag.zoom = sheetZoom;
+    }
+    return;
+  }
+  if (!drag || pointers.size !== 1) return;
+  sheetPanX = drag.panX + event.clientX - drag.x;
+  sheetPanY = drag.panY + event.clientY - drag.y;
+  applySheetTransform();
+});
+function endPointer(event) {
+  pointers.delete(event.pointerId);
+  if (pointers.size === 0) drag = null;
+  else drag = { ...drag, pinch: null, panX: sheetPanX, panY: sheetPanY, x: event.clientX, y: event.clientY };
+}
+sheetViewport.addEventListener('pointerup', endPointer);
+sheetViewport.addEventListener('pointercancel', endPointer);
+
+function exportName(ext) {
+  const base = (currentName || 'drawing').replace(/[^\w.-]+/g, '-');
+  return `${base}-a3.${ext}`;
+}
+
+document.querySelector('#export-png').addEventListener('click', () => {
+  if (!currentSvg) return;
+  exportDrawingPng(currentSvg, exportName('png')).catch(() => {
+    showError('The PNG export did not complete.');
+  });
+});
+document.querySelector('#export-pdf').addEventListener('click', () => {
+  if (!currentSvg) return;
+  exportDrawingPdf(currentSvg, exportName('pdf')).catch(() => {
+    showError('The PDF export did not complete.');
+  });
+});
 
 resetDetails();
 

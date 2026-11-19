@@ -90,11 +90,40 @@
           </dl>
           <p class="hint">Sizes are in millimetres. Z is up.</p>
         </section>
-        <button type="button" id="create-drawing" class="drawing" disabled title="Available in the next step">Create drawing</button>
-        <p class="hint">Drawing sheets come in the next step.</p>
+        <div id="draw-setup" class="draw-setup" hidden>
+          <label class="field" for="front-face">Front face
+            <select id="front-face">
+              <option value="negY" selected>Front (−Y)</option>
+              <option value="posY">Back (+Y)</option>
+              <option value="posX">Right (+X)</option>
+              <option value="negX">Left (−X)</option>
+              <option value="posZ">Top (+Z)</option>
+              <option value="negZ">Bottom (−Z)</option>
+            </select>
+          </label>
+          <button type="button" id="rotate-quarter">Rotate 90°</button>
+          <p class="hint" id="rotate-state">Rotation 0°. The front view looks at the −Y face.</p>
+        </div>
+        <button type="button" id="create-drawing" class="drawing" disabled>Create drawing</button>
+        <p class="hint">Third-angle A3 sheet, in millimetres. Exports are free for now.</p>
       </aside>
     </div>
   </div>
+
+  <section id="sheet-preview" class="sheet-preview" hidden>
+    <div class="sheet-bar">
+      <button type="button" id="sheet-back">Back to model</button>
+      <button type="button" id="sheet-out" aria-label="Zoom out">−</button>
+      <button type="button" id="sheet-in" aria-label="Zoom in">+</button>
+      <button type="button" id="sheet-fit">Fit</button>
+      <button type="button" id="export-png" data-export-hook="one-off-unlock">Export PNG</button>
+      <button type="button" id="export-pdf" data-export-hook="one-off-unlock">Export PDF</button>
+    </div>
+    <p class="hint sheet-free" id="sheet-note">Exports are free for now. A one-off unlock will be added later.</p>
+    <div id="sheet-viewport" class="sheet-viewport">
+      <div id="sheet-stage" class="sheet-stage"></div>
+    </div>
+  </section>
 
   <dialog id="large-file">
     <form method="dialog">

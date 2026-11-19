@@ -315,6 +315,59 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
 .drawing { width: 100%; border-radius: var(--radius); }
 
+.draw-setup { display: grid; gap: 0.45rem; }
+
+.field { display: grid; gap: 0.25rem; font-size: 0.92rem; color: var(--muted); }
+
+.field select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 0 0.6rem;
+}
+
+.sheet-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  padding-top: env(safe-area-inset-top);
+}
+
+.sheet-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-free { padding: 0.35rem 0.8rem 0; }
+
+.sheet-viewport {
+  flex: 1;
+  overflow: hidden;
+  touch-action: none;
+  background: color-mix(in srgb, var(--stage) 80%, #c8c0b2);
+}
+
+.sheet-stage {
+  transform-origin: 0 0;
+  padding: 12px;
+}
+
+.sheet-stage svg {
+  width: min(100vw - 24px, 1100px);
+  height: auto;
+  background: #fff;
+  display: block;
+}
+
 .hint { font-size: 0.85rem; }
 
 dialog {

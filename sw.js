@@ -1,4 +1,4 @@
-const CACHE = 'sdc-shell-1';
+const CACHE = 'sdc-shell-2';
 
 const ASSETS = [
   './index.html',
@@ -8,6 +8,12 @@ const ASSETS = [
   './js/step-model.js',
   './js/format.js',
   './js/step-worker.js',
+  './js/drawing/geometry.js',
+  './js/drawing/sheet.js',
+  './js/drawing/create.js',
+  './js/export-policy.js',
+  './js/export-client.js',
+  './js/pdf-image.js',
   './manifest.webmanifest',
   './vendor/occt-import-js/occt-import-js.js',
   './vendor/occt-import-js/occt-import-js.wasm',
@@ -16,6 +22,7 @@ const ASSETS = [
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/jet-logo.png',
 ];
 
 self.addEventListener('install', (event) => {
