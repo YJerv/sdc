@@ -149,12 +149,10 @@ function buildDimensions(model, views, layout) {
     return true;
   }
 
-  const round = Math.abs(width - depth) < Math.max(0.4, width * 0.03)
-    && model.circles.all.some((circle) => Math.abs(dot3(circle.normal, front.frame.up)) > 0.9
-      && circle.diameter > width * 0.7);
+  const round = Math.abs(width - depth) <= 0.4 && Math.abs(width - height) > 0.4;
   const widthText = round ? `Ø${formatDim(width)}` : diameterText(width, front.frame.right, model.circles.all);
-  const depthText = round ? `Ø${formatDim(depth)}` : diameterText(depth, side.frame.right, model.circles.all);
   const heightText = diameterText(height, front.frame.up, model.circles.all);
+  const envelopeDiameters = new Set(round ? [formatDim(width)] : []);
 
   addDim({
     kind: 'overall',
@@ -180,21 +178,25 @@ function buildDimensions(model, views, layout) {
     box: makeBox(heightText, frontRect.left - 9 - textWidth(heightText) / 2 - 1.2, (frontRect.top + frontRect.bottom) / 2),
     geom: frontRect.left,
   });
-  addDim({
-    kind: 'overall',
-    axis: 'depth',
-    value: depth,
-    text: depthText,
-    orient: 'h',
-    x1: sideRect.left,
-    x2: sideRect.right,
-    y: sideRect.bottom + 8,
-    box: makeBox(depthText, (sideRect.left + sideRect.right) / 2, sideRect.bottom + 8),
-    geom: sideRect.bottom,
-  });
+  if (!round) {
+    const depthText = diameterText(depth, side.frame.right, model.circles.all);
+    addDim({
+      kind: 'overall',
+      axis: 'depth',
+      value: depth,
+      text: depthText,
+      orient: 'h',
+      x1: sideRect.left,
+      x2: sideRect.right,
+      y: sideRect.bottom + 8,
+      box: makeBox(depthText, (sideRect.left + sideRect.right) / 2, sideRect.bottom + 8),
+      geom: sideRect.bottom,
+    });
+  }
 
   const featureSet = collectFeatures(model);
   for (const group of featureSet.diameters) {
+    if (envelopeDiameters.has(formatDim(group.size))) continue;
     const sample = group.features[0];
     const callout = group.features.length > 1
       ? `${group.features.length} × Ø${formatDim(group.size)}`
@@ -282,6 +284,37 @@ function buildDimensions(model, views, layout) {
     }
   }
 
+  for (const group of featureSet.radii) {
+    const sample = group.features[0];
+    const callout = group.features.length > 1
+      ? `${group.features.length} × R${formatDim(group.size)}`
+      : `R${formatDim(group.size)}`;
+    const host = viewForCircle({ normal: sample.axis, center: sample.center }, views) || views.front;
+    const hostPlace = place[host.frame.id];
+    const rect = viewRect(hostPlace);
+    let box = makeBox(callout, rect.right + 2 + textWidth(callout) / 2, rect.top + 6);
+    let placed = false;
+    for (let step = 0; step < 8; step += 1) {
+      if (!hitsAny(box, boxes) && !hitsRect(box, rect)) {
+        placed = true;
+        break;
+      }
+      box = { ...box, x: box.x + 4, cx: box.cx + 4 };
+    }
+    if (!placed) continue;
+    const hx = dot3(sample.center, host.frame.right) - host.extent.midX;
+    const hy = dot3(sample.center, host.frame.up) - host.extent.midY;
+    const [sx, sy] = toSheet(hx, hy, hostPlace, scale);
+    boxes.push(box);
+    dims.push({
+      kind: 'radius',
+      value: group.size,
+      text: callout,
+      box,
+      leader: { x: sx, y: sy },
+    });
+  }
+
   separateBoxes(dims);
   return dims;
 }
@@ -327,6 +360,7 @@ function centreLines(model, view) {
   const lines = [];
   const used = new Set();
   for (const circle of model.circles.all) {
+    if (!circle.hole && circle.diameter < 8) continue;
     const align = Math.abs(dot3(circle.normal, view.frame.eye));
     const cx = dot3(circle.center, view.frame.right) - view.extent.midX;
     const cy = dot3(circle.center, view.frame.up) - view.extent.midY;
@@ -338,6 +372,7 @@ function centreLines(model, view) {
   }
   const axes = [];
   for (const circle of model.circles.all) {
+    if (!circle.hole && circle.diameter < 8) continue;
     const key = `${Math.round(circle.center[0])},${Math.round(circle.center[1])},${Math.round(circle.center[2])},${Math.round(circle.normal[0] * 5)}`;
     if (used.has(key)) continue;
     const group = model.circles.all.filter((other) => coaxial(circle, other));

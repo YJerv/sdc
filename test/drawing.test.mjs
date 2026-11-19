@@ -57,9 +57,14 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       assert.ok(view.paths.length > 0, `${file} ${id} has linework`);
     }
     assert.ok(SCALES.has(drawing.scaleLabel), `${file} scale ${drawing.scaleLabel}`);
-    assert.equal(overall.length, 3, `${file} overall dimensions`);
-    for (let i = 0; i < 3; i += 1) {
-      assert.ok(Math.abs(overall[i] - box[i]) <= 0.1, `${file} dim ${overall[i]} vs ${box[i]}`);
+    assert.ok(overall.length === 2 || overall.length === 3, `${file} overall count ${overall.length}`);
+    for (const value of overall) {
+      assert.ok(box.some((edge) => Math.abs(edge - value) <= 0.1), `${file} overall ${value} is not an envelope edge`);
+    }
+    if (overall.length === 2) {
+      const diameter = overall.find((value) => box.filter((edge) => Math.abs(edge - value) <= 0.15).length > 1) || overall[0];
+      const labelled = drawing.dimensions.filter((dim) => dim.text === `Ø${formatDim(diameter)}` || dim.text.includes(`Ø${formatDim(diameter)}`));
+      assert.equal(labelled.length, 1, `${file} should show Ø${formatDim(diameter)} once`);
     }
     assert.ok(drawing.layout.top.cy < drawing.layout.front.cy, `${file} top view is above the front`);
     assert.ok(drawing.layout.right.cx > drawing.layout.front.cx, `${file} right view is to the right`);
@@ -74,12 +79,20 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
     }
     if (file === 'cone_50x12_v2.step') {
       const text = drawing.dimensions.map((dim) => dim.text).join(' ');
-      assert.match(text, /Ø50/);
+      const diameters = drawing.dimensions.filter((dim) => dim.text.includes('Ø50'));
+      assert.equal(diameters.length, 1);
       assert.match(text, /Ø20/);
       assert.match(text, /(^|\s)12(\s|$)/);
       assert.match(drawing.svg, /data-leader="1"/);
     }
     const features = collectFeatures(prepareModel(result));
+    for (const group of features.radii) {
+      const label = `R${Number.isInteger(group.size) ? group.size : group.size.toFixed(1)}`;
+      assert.ok(
+        drawing.dimensions.some((dim) => dim.kind === 'radius' && dim.text.includes(label)),
+        `${file} missing radius ${label}`,
+      );
+    }
     for (const group of features.diameters) {
       const label = `Ø${Number.isInteger(group.size) ? group.size : group.size.toFixed(1)}`;
       const present = drawing.dimensions.some((dim) => dim.kind === 'diameter' && dim.text.includes(label.replace(/\.0$/, '')));
