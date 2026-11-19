@@ -1,4 +1,5 @@
 import { prepareModel, projectViews, viewFrames } from './geometry.js';
+import { recogniseFaces } from './features.js';
 import { composeSheet } from './sheet.js';
 
 /**
@@ -8,6 +9,7 @@ import { composeSheet } from './sheet.js';
  */
 export function createDrawing(result, options = {}) {
   const model = prepareModel(result);
+  for (const face of recogniseFaces(model)) model.faces[face.index].fit = face;
   const frames = viewFrames(options.front || 'negY', options.turn || 0, options.basis || null);
   const views = projectViews(model, frames);
   return composeSheet({ model, views, options });

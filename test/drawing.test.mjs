@@ -88,6 +88,12 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
         assert.equal(boxesOverlap(boxes[i], boxes[j]), false, `${file} dimensions overlap: ${drawing.dimensions[i].text} and ${drawing.dimensions[j].text}`);
       }
     }
+    if (file === 'cad_upload_1.step') {
+      const topView = drawing.views.find((view) => view.id === 'top');
+      const iso = drawing.views.find((view) => view.id === 'iso');
+      assert.ok(topView.paths.length < 80, `top view still has facet chains (${topView.paths.length})`);
+      assert.ok(iso.paths.length < 550, `iso still has facet chains (${iso.paths.length})`);
+    }
     if (file === 'cone_50x12_v2.step') {
       const cluster = (drawing.layout.front.cx + drawing.layout.right.cx) / 2;
       assert.ok(Math.abs(cluster - 210) < 40, `cone views are not centred (${cluster})`);

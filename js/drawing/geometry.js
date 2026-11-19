@@ -165,6 +165,36 @@ function edgeKey(i, j) {
   return i < j ? `${i}:${j}` : `${j}:${i}`;
 }
 
+function analyticGenerators(model, frame) {
+  const segments = [];
+  for (const face of model.faces) {
+    const fit = face.fit;
+    if (!fit || (fit.type !== 'cylinder' && fit.type !== 'cone') || !fit.points?.length) continue;
+    const radius = fit.rawRadius ?? fit.radius;
+    if (radius < 0.2) continue;
+    let minAlong = Infinity;
+    let maxAlong = -Infinity;
+    for (const point of fit.points) {
+      const along = dot(sub(point, fit.origin), fit.axis);
+      if (along < minAlong) minAlong = along;
+      if (along > maxAlong) maxAlong = along;
+    }
+    const side = cross(fit.axis, frame.eye);
+    if (length(side) < 0.2) continue;
+    const unit = norm(side);
+    for (const sign of [1, -1]) {
+      const offset = mul(unit, radius * sign);
+      segments.push({
+        a: add(add(fit.origin, mul(fit.axis, minAlong)), offset),
+        b: add(add(fit.origin, mul(fit.axis, maxAlong)), offset),
+        tris: [],
+        kind: 'silhouette',
+      });
+    }
+  }
+  return segments;
+}
+
 function boundaryAndSilhouette(model, eye) {
   const merged = new Map();
   function addSegment(a, b, triIds, kind) {
@@ -202,6 +232,8 @@ function boundaryAndSilhouette(model, eye) {
     for (const entry of map.values()) {
       const boundary = entry.tris.length === 1;
       const silhouette = entry.tris.length >= 2 && entry.facing[0] * entry.facing[1] < 0;
+      const analytic = face.fit && (face.fit.type === 'cylinder' || face.fit.type === 'cone');
+      if (analytic && !boundary) continue;
       if (!boundary && !silhouette) continue;
       const a = vertex(entry.position, entry.i);
       const b = vertex(entry.position, entry.j);
@@ -319,6 +351,7 @@ function projectFrame(model, frame) {
   }
 
   const raw = boundaryAndSilhouette(model, frame.eye);
+  for (const segment of analyticGenerators(model, frame)) raw.push(segment);
   const pieces = [];
   const maxLen = Math.max(1.5, span / 45);
   for (const segment of raw) {
@@ -338,7 +371,19 @@ function projectFrame(model, frame) {
       pieces.push({ a: [ax, ay], b: [bx, by], hidden, kind: piece.kind });
     }
   }
-  return { extent, paths: chainPaths(pieces), span };
+  const paths = chainPaths(pieces).filter((path) => pathLength(path) >= 0.9);
+  return { extent, paths, span };
+}
+
+function pathLength(path) {
+  let total = 0;
+  for (let i = 1; i < path.points.length; i += 1) {
+    total += Math.hypot(
+      path.points[i][0] - path.points[i - 1][0],
+      path.points[i][1] - path.points[i - 1][1],
+    );
+  }
+  return total;
 }
 
 function pointInTri(px, py, ax, ay, bx, by, cx, cy) {
