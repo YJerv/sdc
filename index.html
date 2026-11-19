@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1e2a36">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Open a STEP file and view it in 3D. The file stays on this device.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SDC">
+  <title>STEP Drawing Creator</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/three.module.min.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <img src="icons/icon.svg" width="32" height="32" alt="">
+        <div>
+          <p class="product">STEP Drawing Creator</p>
+          <p class="tag">On this device. Nothing is uploaded.</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button type="button" id="theme-toggle" aria-pressed="false">Dark theme</button>
+        <label class="open-button">
+          Open STEP
+          <input id="file-input" type="file" accept=".step,.stp,model/step,application/step">
+        </label>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <section class="stage" id="stage" aria-label="3D view">
+        <canvas id="view"></canvas>
+        <div class="empty" id="empty">
+          <div>
+            <p>Open a .step or .stp file, or drop it here.</p>
+            <p class="muted">The model is read in your browser. It is not sent anywhere.</p>
+          </div>
+        </div>
+        <div class="drop-hint" id="drop-hint" hidden>
+          <p>Drop to open</p>
+        </div>
+        <div class="loading" id="loading" hidden>
+          <div>
+            <p id="loading-text">Reading the STEP file…</p>
+            <div class="track" role="progressbar" aria-label="Loading"><span></span></div>
+          </div>
+        </div>
+        <p class="error" id="error" role="alert" hidden></p>
+        <p class="stage-title" id="stage-title" hidden></p>
+        <div class="hud">
+          <div class="view-bar" role="toolbar" aria-label="Standard views">
+            <button type="button" id="view-fit" data-view="fit" disabled title="Fit to view">Fit</button>
+            <button type="button" id="view-front" data-view="front" disabled title="Front">Front</button>
+            <button type="button" id="view-top" data-view="top" disabled title="Top">Top</button>
+            <button type="button" id="view-right" data-view="right" disabled title="Right">Right</button>
+            <button type="button" id="view-iso" data-view="iso" disabled title="Isometric">Iso</button>
+          </div>
+          <p class="bbox"><span class="bbox-label">Size</span> <span id="bbox-value">—</span></p>
+        </div>
+      </section>
+
+      <aside class="side" aria-label="Model details">
+        <section>
+          <h2>Parts</h2>
+          <div class="tree" id="tree"></div>
+        </section>
+        <section aria-live="polite">
+          <h2>File</h2>
+          <dl>
+            <div><dt>Name</dt><dd id="info-name">—</dd></div>
+            <div><dt>Size</dt><dd id="info-size">—</dd></div>
+            <div><dt>Faces</dt><dd id="info-faces">—</dd></div>
+            <div><dt>Edges</dt><dd id="info-edges">—</dd></div>
+            <div><dt>Load time</dt><dd id="info-time">—</dd></div>
+          </dl>
+          <p class="hint">Sizes are in millimetres. Z is up.</p>
+        </section>
+        <button type="button" id="create-drawing" class="drawing" disabled title="Available in the next step">Create drawing</button>
+        <p class="hint">Drawing sheets come in the next step.</p>
+      </aside>
+    </div>
+  </div>
+
+  <dialog id="large-file">
+    <form method="dialog">
+      <h2>Large STEP file</h2>
+      <p id="large-file-text"></p>
+      <div class="dialog-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button value="continue" class="open-button">Continue</button>
+      </div>
+    </form>
+  </dialog>
+
+  <noscript>
+    <p>STEP Drawing Creator needs JavaScript. The file is still read only on this device.</p>
+  </noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

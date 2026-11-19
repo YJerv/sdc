@@ -1,0 +1,16 @@
+occt-import-js 0.0.23
+https://github.com/kovacsv/occt-import-js
+Licence: GNU Lesser General Public License, version 2.1
+See license.occt-import-js.txt and license.occt.txt in this folder.
+
+occt-import-js.js and occt-import-js.wasm are the unmodified 0.0.23
+distribution, except for one line added at the end of the JavaScript file:
+
+    export default occtimportjs;
+
+That line lets the browser load the file as an ES module. The WebAssembly
+build is unchanged. Source for this version:
+https://github.com/kovacsv/occt-import-js/releases/tag/0.0.23
+
+Open CASCADE Technology, which the library binds, is available from
+https://dev.opencascade.org/ and is covered by license.occt.txt.
