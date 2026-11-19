@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
-import { basisFromUp } from './orient.js';
+import { basisForFront, basisFromUp, seatOnGrid } from './orient.js';
 
 /**
  * Z-up, millimetres. Directions are from the part centre out to the camera.
@@ -67,6 +67,7 @@ export function createViewer(canvas) {
   scene.add(model);
 
   let grid = null;
+  let gridVisible = true;
   let theme = 'light';
   let needsRender = true;
   let disposed = false;
@@ -300,7 +301,21 @@ export function createViewer(canvas) {
     return points;
   }
 
-  function applyBasis(next) {
+  function rebuildGrid() {
+    if (grid) {
+      scene.remove(grid);
+      grid.geometry.dispose();
+      grid.material.dispose();
+      grid = null;
+    }
+    if (!gridVisible) return;
+    const box = new THREE.Box3().setFromObject(model);
+    if (!box.isEmpty()) placeGrid(box);
+  }
+
+  function orientPart(next, viewName) {
+    const points = localPoints();
+    const translation = seatOnGrid(points, next);
     basis = next;
     const matrix = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(...next.x),
@@ -309,14 +324,18 @@ export function createViewer(canvas) {
     );
     matrix.invert();
     model.quaternion.setFromRotationMatrix(matrix);
-    model.position.set(0, 0, 0);
+    model.position.copy(new THREE.Vector3(...translation).applyQuaternion(model.quaternion));
     model.updateMatrixWorld(true);
-    needsRender = true;
+    rebuildGrid();
+    frame(VIEWS[viewName] || VIEWS.iso);
   }
 
   function setTopFromNormal(normal) {
-    applyBasis(basisFromUp([normal.x, normal.y, normal.z], localPoints()));
-    frame(VIEWS.top);
+    orientPart(basisFromUp([normal.x, normal.y, normal.z], localPoints()), 'top');
+  }
+
+  function setFrontFace(frontId, turns = 0) {
+    orientPart(basisForFront(frontId, localPoints(), turns), 'front');
   }
 
   function setModel(result) {
@@ -331,9 +350,8 @@ export function createViewer(canvas) {
       model.add(built.group);
       edges += built.edgeCount;
     }
-    const box = new THREE.Box3().setFromObject(model);
-    if (!box.isEmpty()) placeGrid(box);
-    frame(VIEWS.iso);
+    if (localPoints().length) orientPart(basisForFront('negY', localPoints(), 0), 'iso');
+    else frame(VIEWS.iso);
     return { edges };
   }
 
@@ -369,6 +387,7 @@ export function createViewer(canvas) {
     setTheme,
     frame,
     getBasis: () => basis,
+    setFrontFace,
     views: VIEWS,
     resize,
     dispose() {

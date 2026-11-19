@@ -71,7 +71,13 @@ function vertex(position, index) {
   return [position[o], position[o + 1], position[o + 2]];
 }
 
-export function viewFrames(frontId = 'negY', quarterTurns = 0) {
+export function viewFrames(frontId = 'negY', quarterTurns = 0, basis = null) {
+  if (basis?.x && basis?.y && basis?.z) {
+    const eye = [-basis.y[0], -basis.y[1], -basis.y[2]];
+    const up = basis.z.slice();
+    const right = basis.x.slice();
+    return framesFromAxes(eye, up, right);
+  }
   const eyes = {
     negY: [0, -1, 0],
     posY: [0, 1, 0],
@@ -88,6 +94,10 @@ export function viewFrames(frontId = 'negY', quarterTurns = 0) {
   for (let i = 0; i < turns; i += 1) up = norm(cross(eye, up));
   const right = norm(cross(up, eye));
   up = norm(cross(eye, right));
+  return framesFromAxes(eye, up, right);
+}
+
+function framesFromAxes(eye, up, right) {
   const front = { id: 'front', eye, up, right, hidden: true };
   const top = { id: 'top', eye: up.slice(), right: right.slice(), up: mul(eye, -1), hidden: true };
   const side = { id: 'right', eye: right.slice(), up: up.slice(), right: mul(eye, -1), hidden: true };

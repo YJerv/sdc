@@ -323,11 +323,20 @@ function updateRotateState() {
   rotateState.textContent = `Rotation ${quarterTurns * 90}°. The front view looks at the ${face} face.`;
 }
 
+function realignModel() {
+  if (!currentResult) return;
+  viewer.setFrontFace(frontFace.value, quarterTurns);
+}
+
 rotateButton.addEventListener('click', () => {
   quarterTurns = (quarterTurns + 1) % 4;
   updateRotateState();
+  realignModel();
 });
-frontFace.addEventListener('change', updateRotateState);
+frontFace.addEventListener('change', () => {
+  updateRotateState();
+  realignModel();
+});
 
 function applySheetTransform() {
   sheetStage.style.transform = `translate(${sheetPanX}px, ${sheetPanY}px) scale(${sheetZoom})`;
@@ -354,7 +363,7 @@ createButton.addEventListener('click', () => {
   const turn = quarterTurns;
   requestAnimationFrame(() => {
     try {
-      const drawing = createDrawing(result, { title, front, turn });
+      const drawing = createDrawing(result, { title, basis: viewer.getBasis() });
       showSheet(drawing);
       setBusy(false);
       setViewsEnabled(true);

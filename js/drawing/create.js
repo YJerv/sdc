@@ -8,7 +8,7 @@ import { composeSheet } from './sheet.js';
  */
 export function createDrawing(result, options = {}) {
   const model = prepareModel(result);
-  const frames = viewFrames(options.front || 'negY', options.turn || 0);
+  const frames = viewFrames(options.front || 'negY', options.turn || 0, options.basis || null);
   const views = projectViews(model, frames);
   return composeSheet({ model, views, options });
 }

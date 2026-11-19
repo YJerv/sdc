@@ -141,7 +141,7 @@ export function basisForFront(frontId, points = [], quarterTurns = 0) {
   const front = fronts[frontId] || fronts.negY;
   const up = Math.abs(front[2]) > 0.9 ? [0, 1, 0] : [0, 0, 1];
   const z = norm(up);
-  const y = norm(mul(front, -1));
+  let y = norm(mul(front, -1));
   let x = norm(cross(y, z));
   if (Math.hypot(x[0], x[1], x[2]) < 0.5) x = [1, 0, 0];
   x = rotateAroundZOnBasis(x, norm(cross(z, x)), z, quarterTurns);
@@ -150,8 +150,8 @@ export function basisForFront(frontId, points = [], quarterTurns = 0) {
   if (points.length < 3) return { x, y, z };
   const angle = principalAngle(points, x, y, z);
   const wobble = angle - Math.round(angle / (Math.PI / 2)) * (Math.PI / 2);
-  const c = Math.cos(-wobble);
-  const s = Math.sin(-wobble);
+  const c = Math.cos(wobble);
+  const s = Math.sin(wobble);
   const x2 = norm(add(mul(x, c), mul(y, s)));
   const y2 = norm(cross(z, x2));
   return { x: norm(cross(y2, z)), y: y2, z };
