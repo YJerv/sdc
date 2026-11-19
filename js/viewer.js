@@ -388,6 +388,18 @@ export function createViewer(canvas) {
     frame,
     getBasis: () => basis,
     setFrontFace,
+    setGridVisible(visible) {
+      gridVisible = Boolean(visible);
+      if (!gridVisible && grid) {
+        scene.remove(grid);
+        grid.geometry.dispose();
+        grid.material.dispose();
+        grid = null;
+      } else if (gridVisible) {
+        rebuildGrid();
+      }
+      needsRender = true;
+    },
     views: VIEWS,
     resize,
     dispose() {

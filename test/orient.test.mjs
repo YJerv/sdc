@@ -9,6 +9,7 @@ import {
   seatOnGrid,
   toAligned,
 } from '../js/orient.js';
+import { readGridVisible, writeGridVisible } from '../js/settings.js';
 
 test('a clicked face normal becomes the top axis', () => {
   const clicked = [0, -1, 0];
@@ -49,4 +50,17 @@ test('a changed front face squares the part and seats it on the grid', () => {
   assert.ok(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2) < 0.05);
   assert.ok(Math.abs((Math.min(...ys) + Math.max(...ys)) / 2) < 0.05);
   assert.ok(dot(basis.y, [0, -1, 0]) < -0.7);
+});
+
+test('the grid choice is remembered', () => {
+  const saved = new Map();
+  const storage = {
+    getItem: (key) => (saved.has(key) ? saved.get(key) : null),
+    setItem: (key, value) => saved.set(key, value),
+  };
+  assert.equal(readGridVisible(storage), true);
+  writeGridVisible(false, storage);
+  assert.equal(readGridVisible(storage), false);
+  writeGridVisible(true, storage);
+  assert.equal(readGridVisible(storage), true);
 });

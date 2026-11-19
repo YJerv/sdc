@@ -7,6 +7,7 @@ import {
 } from './step-model.js';
 import { createViewer } from './viewer.js';
 import { createDrawing } from './drawing/create.js';
+import { readGridVisible, writeGridVisible } from './settings.js';
 import { exportDrawingPdf, exportDrawingPng } from './export-client.js';
 
 const fileInput = document.querySelector('#file-input');
@@ -40,6 +41,16 @@ const sheetNote = document.querySelector('#sheet-note');
 
 const canvas = document.querySelector('#view');
 const viewer = createViewer(canvas);
+const gridToggle = document.querySelector('#grid-toggle');
+let gridVisible = readGridVisible(localStorage);
+viewer.setGridVisible(gridVisible);
+gridToggle.setAttribute('aria-pressed', gridVisible ? 'true' : 'false');
+gridToggle.addEventListener('click', () => {
+  gridVisible = !gridVisible;
+  writeGridVisible(gridVisible, localStorage);
+  viewer.setGridVisible(gridVisible);
+  gridToggle.setAttribute('aria-pressed', gridVisible ? 'true' : 'false');
+});
 
 const THEME_KEY = 'sdc-theme';
 let chosenTheme = null;
