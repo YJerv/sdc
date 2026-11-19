@@ -8,6 +8,7 @@ const ASSETS = [
   './js/step-model.js',
   './js/format.js',
   './js/step-worker.js',
+  './js/orient.js',
   './js/drawing/geometry.js',
   './js/drawing/sheet.js',
   './js/drawing/create.js',

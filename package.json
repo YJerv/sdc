@@ -5,7 +5,7 @@
   "description": "STEP Drawing Creator: open a STEP file and view it in 3D, on this device.",
   "type": "module",
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/load-fixtures.test.mjs test/drawing.test.mjs"
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
   },
   "devDependencies": {
     "occt-import-js": "0.0.23",

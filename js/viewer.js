@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
+import { basisFromUp } from './orient.js';
 
 /**
  * Z-up, millimetres. Directions are from the part centre out to the camera.
@@ -69,6 +70,14 @@ export function createViewer(canvas) {
   let theme = 'light';
   let needsRender = true;
   let disposed = false;
+  let basis = {
+    x: [1, 0, 0],
+    y: [0, 1, 0],
+    z: [0, 0, 1],
+  };
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let pointerDown = null;
 
   function applyClear() {
     const colours = PALETTE[theme] || PALETTE.light;
@@ -278,8 +287,43 @@ export function createViewer(canvas) {
     needsRender = true;
   }
 
+  function localPoints() {
+    const points = [];
+    model.traverse((object) => {
+      if (!object.isMesh) return;
+      const position = object.geometry.getAttribute('position');
+      if (!position) return;
+      for (let i = 0; i < position.count; i += 1) {
+        points.push([position.getX(i), position.getY(i), position.getZ(i)]);
+      }
+    });
+    return points;
+  }
+
+  function applyBasis(next) {
+    basis = next;
+    const matrix = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(...next.x),
+      new THREE.Vector3(...next.y),
+      new THREE.Vector3(...next.z),
+    );
+    matrix.invert();
+    model.quaternion.setFromRotationMatrix(matrix);
+    model.position.set(0, 0, 0);
+    model.updateMatrixWorld(true);
+    needsRender = true;
+  }
+
+  function setTopFromNormal(normal) {
+    applyBasis(basisFromUp([normal.x, normal.y, normal.z], localPoints()));
+    frame(VIEWS.top);
+  }
+
   function setModel(result) {
     clearGroup();
+    model.quaternion.identity();
+    model.position.set(0, 0, 0);
+    basis = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
     let edges = 0;
     for (const mesh of result.meshes || []) {
       if (!mesh.position?.length || !mesh.index?.length) continue;
@@ -302,10 +346,29 @@ export function createViewer(canvas) {
     event.preventDefault();
   });
 
+  canvas.addEventListener('pointerdown', (event) => {
+    pointerDown = { x: event.clientX, y: event.clientY };
+  });
+  canvas.addEventListener('pointerup', (event) => {
+    if (!pointerDown) return;
+    const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+    pointerDown = null;
+    if (moved > 8) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObject(model, true).find((item) => item.object.isMesh && item.face);
+    if (!hit) return;
+    setTopFromNormal(hit.face.normal);
+  });
+
   return {
     setModel,
     setTheme,
     frame,
+    getBasis: () => basis,
     views: VIEWS,
     resize,
     dispose() {
