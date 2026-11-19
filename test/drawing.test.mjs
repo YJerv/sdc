@@ -12,6 +12,8 @@ import { canExport, exportPolicy } from '../js/export-policy.js';
 import { STEP_IMPORT_PARAMS, boundingBox, isStepFilename } from '../js/step-model.js';
 
 const FIXTURES = path.join(import.meta.dirname, 'fixtures');
+const SHEET_RIGHT = 420 - 14;
+const SHEET_BOTTOM = 297 - 10 - 52 - 2;
 const SCALES = new Set(['1:1', '1:2', '1:5', '1:10', '2:1', '5:1']);
 
 test('sheet helpers', () => {
@@ -71,6 +73,15 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
     assert.match(drawing.svg, /THIRD ANGLE/);
     assert.match(drawing.svg, /Created with STEP Drawing Creator/);
     assert.match(drawing.svg, /MILLIMETRES/);
+    for (const dim of drawing.dimensions) {
+      assert.ok(dim.box.x >= 13.5, `${file} ${dim.text} left of the frame`);
+      assert.ok(dim.box.y >= 13.5, `${file} ${dim.text} above the frame`);
+      assert.ok(dim.box.x + dim.box.w <= SHEET_RIGHT, `${file} ${dim.text} right of the frame`);
+      assert.ok(dim.box.y + dim.box.h <= SHEET_BOTTOM, `${file} ${dim.text} below the frame`);
+      if (dim.kind === 'diameter' || dim.kind === 'radius') {
+        assert.ok(dim.leader, `${file} ${dim.text} has no leader`);
+      }
+    }
     const boxes = drawing.dimensions.map((dim) => dim.box);
     for (let i = 0; i < boxes.length; i += 1) {
       for (let j = i + 1; j < boxes.length; j += 1) {

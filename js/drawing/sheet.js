@@ -316,7 +316,25 @@ function buildDimensions(model, views, layout) {
   }
 
   separateBoxes(dims);
+  for (const dim of dims) dim.box = clampToFrame(dim.box);
+  separateBoxes(dims);
+  for (const dim of dims) dim.box = clampToFrame(dim.box);
   return dims;
+}
+
+function clampToFrame(box) {
+  const left = 14;
+  const top = 14;
+  const right = SHEET.width - 14;
+  const bottom = TITLE_Y - 2;
+  let x = box.x;
+  let y = box.y;
+  if (x < left) x = left;
+  if (y < top) y = top;
+  if (x + box.w > right) x = right - box.w;
+  if (y + box.h > bottom) y = bottom - box.h;
+  if (x + box.w > TITLE_X - 1 && y + box.h > TITLE_Y - 1) y = Math.min(y, TITLE_Y - box.h - 1);
+  return { ...box, x, y, cx: x + box.w / 2, cy: y + box.h / 2 };
 }
 
 function separateBoxes(dims) {
