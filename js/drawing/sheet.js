@@ -4,7 +4,7 @@
  */
 
 import { formatDim } from './geometry.js';
-import { collectFeatures } from './features.js';
+import { collectFeatures, snapCentre, snapLength } from './features.js';
 
 export const SHEET = { width: 420, height: 297 };
 const MARGIN = 10;
@@ -238,10 +238,11 @@ function buildDimensions(model, views, layout) {
       const view = viewForCircle({ normal: hole.axis, center: hole.center }, views);
       if (!view) continue;
       const rect = viewRect(place[view.frame.id]);
-      const hx = dot3(hole.center, view.frame.right);
-      const hy = dot3(hole.center, view.frame.up);
-      const fromLeft = hx - view.extent.minX;
-      const fromBottom = hy - view.extent.minY;
+      const centre = snapCentre(hole.center, envelopeCentre(model), hole.axis);
+      const hx = dot3(centre, view.frame.right);
+      const hy = dot3(centre, view.frame.up);
+      const fromLeft = snapLength(hx - view.extent.minX);
+      const fromBottom = snapLength(hy - view.extent.minY);
       if (fromLeft <= 0.2 && fromBottom <= 0.2) continue;
       const [px] = toSheet(hx - view.extent.midX, 0, place[view.frame.id], scale);
       const [, py] = toSheet(0, hy - view.extent.midY, place[view.frame.id], scale);
@@ -355,6 +356,18 @@ function separateBoxes(dims) {
     }
     if (!moved) break;
   }
+}
+
+function envelopeCentre(model) {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const point of model.points) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      if (point[axis] < min[axis]) min[axis] = point[axis];
+      if (point[axis] > max[axis]) max[axis] = point[axis];
+    }
+  }
+  return [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
 }
 
 function viewForCircle(circle, views) {

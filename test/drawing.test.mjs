@@ -95,6 +95,9 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       assert.match(text, /Ø20/);
       assert.match(text, /(^|\s)12(\s|$)/);
       assert.match(drawing.svg, /data-leader="1"/);
+      const positions = drawing.dimensions.filter((dim) => dim.kind === 'position').map((dim) => dim.text);
+      assert.ok(positions.includes('25'), `cone positions ${positions.join(', ')}`);
+      assert.equal(positions.some((text) => text === '24.9' || text === '24.8'), false);
     }
     const features = collectFeatures(prepareModel(result));
     for (const group of features.radii) {
