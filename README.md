@@ -45,3 +45,5 @@ The web app is a PWA (manifest, icons, and a service worker) so it can later be 
 
 - [three.js](https://github.com/mrdoob/three.js) 0.170.0, MIT. Copies are in `vendor/three`.
 - occt-import-js 0.0.23, GNU LGPL-2.1 (this is the licence the package publishes; it binds Open CASCADE). Copies and the licence texts are in `vendor/occt-import-js`. The JavaScript file has one added line, `export default occtimportjs;`, so the browser can load it as a module. The WebAssembly file is unchanged. See `vendor/occt-import-js/NOTICE.txt`.
+
+Diameters and radii are recognised by fitting each face of that mesh (plane, cylinder, cone, circle) and snapping a length when it is already within 0.15 mm of a sensible value. A full Open CASCADE WASM build that could read the analytic surfaces directly is about 49 MB (about 9 MB compressed) and was not added.
