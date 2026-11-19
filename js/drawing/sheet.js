@@ -104,7 +104,32 @@ function layoutFor(views, scale) {
     && bounds.bottom <= SHEET.height - MARGIN;
   const title = { x: TITLE_X, y: TITLE_Y, w: TITLE.w, h: TITLE.h };
   const overlapsTitle = bounds.right > title.x - 3 && bounds.bottom > title.y - 3;
+  if (inside && !overlapsTitle) centreInSheet(place, bounds);
   return { place, bounds, scale, fits: inside && !overlapsTitle, title };
+}
+
+function centreInSheet(place, bounds) {
+  const freeLeft = MARGIN + 2;
+  const freeRight = SHEET.width - MARGIN - 2;
+  const freeTop = MARGIN + 2;
+  const freeBottom = TITLE_Y - 3;
+  let dx = (freeLeft + freeRight) / 2 - (bounds.left + bounds.right) / 2;
+  let dy = (freeTop + freeBottom) / 2 - (bounds.top + bounds.bottom) / 2;
+  if (bounds.left + dx < freeLeft) dx = freeLeft - bounds.left;
+  if (bounds.right + dx > freeRight) dx = freeRight - bounds.right;
+  if (bounds.top + dy < freeTop) dy = freeTop - bounds.top;
+  if (bounds.bottom + dy > freeBottom) dy = freeBottom - bounds.bottom;
+  if (bounds.right + dx > TITLE_X - 3 && bounds.bottom + dy > TITLE_Y - 3) {
+    dy = Math.min(dy, TITLE_Y - 3 - bounds.bottom);
+  }
+  for (const view of Object.values(place)) {
+    view.cx += dx;
+    view.cy += dy;
+  }
+  bounds.left += dx;
+  bounds.right += dx;
+  bounds.top += dy;
+  bounds.bottom += dy;
 }
 
 function toSheet(vx, vy, place, scale) {

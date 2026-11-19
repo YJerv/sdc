@@ -89,6 +89,10 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       }
     }
     if (file === 'cone_50x12_v2.step') {
+      const cluster = (drawing.layout.front.cx + drawing.layout.right.cx) / 2;
+      assert.ok(Math.abs(cluster - 210) < 40, `cone views are not centred (${cluster})`);
+    }
+    if (file === 'cone_50x12_v2.step') {
       const text = drawing.dimensions.map((dim) => dim.text).join(' ');
       const diameters = drawing.dimensions.filter((dim) => dim.text.includes('Ø50'));
       assert.equal(diameters.length, 1);
