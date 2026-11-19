@@ -4,6 +4,7 @@
  */
 
 import { formatDim } from './geometry.js';
+import { collectFeatures } from './features.js';
 
 export const SHEET = { width: 420, height: 297 };
 const MARGIN = 10;
@@ -192,20 +193,13 @@ function buildDimensions(model, views, layout) {
     geom: sideRect.bottom,
   });
 
-  const holes = [];
-  for (const hole of model.circles.holes) {
-    const twin = holes.find((other) => Math.abs(other.diameter - hole.diameter) < 0.35 && coaxial(other, hole));
-    if (!twin) holes.push(hole);
-  }
-  const groups = new Map();
-  for (const hole of holes) {
-    const label = formatDim(hole.diameter);
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label).push(hole);
-  }
-  for (const [label, holes] of groups) {
-    const callout = holes.length > 1 ? `${holes.length} × Ø${label}` : `Ø${label}`;
-    const host = viewForCircle(holes[0], views) || front;
+  const featureSet = collectFeatures(model);
+  for (const group of featureSet.diameters) {
+    const sample = group.features[0];
+    const callout = group.features.length > 1
+      ? `${group.features.length} × Ø${formatDim(group.size)}`
+      : `Ø${formatDim(group.size)}`;
+    const host = viewForCircle({ normal: sample.axis, center: sample.center }, views) || front;
     const hostPlace = place[host.frame.id];
     const rect = viewRect(hostPlace);
     let box = makeBox(callout, rect.left + textWidth(callout) / 2 + 1, rect.top - DIM_LANE - 5);
@@ -217,22 +211,29 @@ function buildDimensions(model, views, layout) {
       }
       box = { ...box, y: box.y - (box.h + 1.2), cy: box.cy - (box.h + 1.2) };
     }
+    const hx = dot3(sample.center, host.frame.right) - host.extent.midX;
+    const hy = dot3(sample.center, host.frame.up) - host.extent.midY;
+    const [sx, sy] = toSheet(hx, hy, hostPlace, scale);
+    const edge = Math.max(sample.radius * scale, 1.5);
+    const leader = {
+      x: Math.min(rect.right, Math.max(rect.left, sx + Math.sign(box.cx - sx || 1) * edge)),
+      y: Math.min(rect.bottom, Math.max(rect.top, sy)),
+    };
     if (placed) {
       boxes.push(box);
       dims.push({
         kind: 'diameter',
-        value: holes[0].diameter,
+        value: group.size,
         text: callout,
         box,
+        leader,
         anchor: [box.cx, box.cy],
       });
     }
-    if (holes.length > 8) {
-      model.warnings.push('Only the first holes of a repeated size are positioned. The rest are covered by the grouped diameter.');
-    }
+    const holes = group.features.filter((feature) => feature.hole);
     const positioned = holes.slice(0, 8);
     for (const hole of positioned) {
-      const view = viewForCircle(hole, views);
+      const view = viewForCircle({ normal: hole.axis, center: hole.center }, views);
       if (!view) continue;
       const rect = viewRect(place[view.frame.id]);
       const hx = dot3(hole.center, view.frame.right);
@@ -517,9 +518,25 @@ function renderDimension(dim) {
     bits.push(arrow(x, y1, -Math.PI / 2));
     bits.push(arrow(x, y2, Math.PI / 2));
   }
+  if (dim.leader) {
+    const tip = dim.leader;
+    const from = boxAnchor(box, tip);
+    bits.push(`<line data-leader="1" x1="${from.x.toFixed(2)}" y1="${from.y.toFixed(2)}" x2="${tip.x.toFixed(2)}" y2="${tip.y.toFixed(2)}" stroke="#111" stroke-width="0.18"/>`);
+    const angle = Math.atan2(tip.y - from.y, tip.x - from.x);
+    bits.push(arrow(tip.x, tip.y, angle));
+  }
   bits.push(`<text class="dim-text" x="${box.cx.toFixed(2)}" y="${box.cy.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-family="Helvetica, Arial, sans-serif" font-size="${box.size}">${esc(box.text)}</text>`);
   bits.push(`</g>`);
   return bits.join('');
+}
+
+function boxAnchor(box, tip) {
+  const dx = tip.x - box.cx;
+  const dy = tip.y - box.cy;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    return { x: dx > 0 ? box.x + box.w : box.x, y: box.cy };
+  }
+  return { x: box.cx, y: dy > 0 ? box.y + box.h : box.y };
 }
 
 function gapFrom(geom, dimPos) {

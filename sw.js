@@ -11,6 +11,7 @@ const ASSETS = [
   './js/orient.js',
   './js/settings.js',
   './js/drawing/geometry.js',
+  './js/drawing/features.js',
   './js/drawing/sheet.js',
   './js/drawing/create.js',
   './js/export-policy.js',

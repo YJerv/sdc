@@ -4,6 +4,8 @@ import path from 'node:path';
 import test from 'node:test';
 import occtimportjs from 'occt-import-js';
 import { createDrawing } from '../js/drawing/create.js';
+import { prepareModel } from '../js/drawing/geometry.js';
+import { collectFeatures } from '../js/drawing/features.js';
 import { formatDim, viewFrames } from '../js/drawing/geometry.js';
 import { pdfFromJpeg } from '../js/pdf-image.js';
 import { canExport, exportPolicy } from '../js/export-policy.js';
@@ -73,7 +75,15 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
     if (file === 'cone_50x12_v2.step') {
       const text = drawing.dimensions.map((dim) => dim.text).join(' ');
       assert.match(text, /Ø50/);
+      assert.match(text, /Ø20/);
       assert.match(text, /(^|\s)12(\s|$)/);
+      assert.match(drawing.svg, /data-leader="1"/);
+    }
+    const features = collectFeatures(prepareModel(result));
+    for (const group of features.diameters) {
+      const label = `Ø${Number.isInteger(group.size) ? group.size : group.size.toFixed(1)}`;
+      const present = drawing.dimensions.some((dim) => dim.kind === 'diameter' && dim.text.includes(label.replace(/\.0$/, '')));
+      assert.equal(present, true, `${file} missing diameter ${label}`);
     }
   }
   console.log('| File | Drawing | Scale | Overall dims |');
