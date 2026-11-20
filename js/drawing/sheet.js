@@ -176,7 +176,7 @@ function sheetCircle(feature, view, place, scale) {
   return { x, y, r: Math.max(feature.radius * scale, 0.8) };
 }
 
-function placeRadialCallout({ text, centre, radius, view, place, scale, boxes, leaders, rings }) {
+function placeRadialCallout({ text, centre, radius, view, place, scale, boxes, leaders, rings, centreLines = [] }) {
   const hostPlace = place[view.frame.id];
   const [sx, sy] = toSheet(
     dot3(centre, view.frame.right) - view.extent.midX,
@@ -190,7 +190,7 @@ function placeRadialCallout({ text, centre, radius, view, place, scale, boxes, l
     .map((id) => viewRect(place[id]));
   let best = null;
   for (let i = 0; i < 24; i += 1) {
-    const angle = (i * Math.PI) / 12;
+    const angle = Math.PI / 4 + (i * Math.PI) / 12;
     const ux = Math.cos(angle);
     const uy = Math.sin(angle);
     const tip = { x: sx + ux * sheetR, y: sy + uy * sheetR };
@@ -198,7 +198,7 @@ function placeRadialCallout({ text, centre, radius, view, place, scale, boxes, l
     for (let step = 0; step < 8; step += 1) {
       const dist = sheetR + 3.4 + half + step * 4.2;
       const box = makeBox(text, sx + ux * dist, sy + uy * dist);
-      if (!radialFits(box, tip, sx, sy, sheetR, boxes, leaders, rings, otherViews)) continue;
+      if (!radialFits(box, tip, sx, sy, sheetR, boxes, leaders, rings, otherViews, centreLines)) continue;
       const from = rayBoxBoundary(box, { x: sx, y: sy });
       const length = Math.hypot(tip.x - from.x, tip.y - from.y);
       const outside = hitsRect(box, viewRect(hostPlace)) ? 2 : 0;
@@ -218,17 +218,24 @@ function placeRadialCallout({ text, centre, radius, view, place, scale, boxes, l
   return best;
 }
 
-function radialFits(box, tip, sx, sy, sheetR, boxes, leaders, rings, otherViews) {
+function radialFits(box, tip, sx, sy, sheetR, boxes, leaders, rings, otherViews, centreLines) {
   if (!insideFrame(box)) return false;
   if (hitsAny(box, boxes)) return false;
-  if (circleCutsBox(box, sx, sy, sheetR)) return false;
+  if (!boxOutsideCircle(box, sx, sy, sheetR, 0.8)) return false;
   if (rings.some((ring) => circleCutsBox(box, ring.x, ring.y, ring.r))) return false;
+  if (centreLines.some((line) => segmentHitsBox(line, box, 0.7))) return false;
   if (otherViews.some((rect) => hitsRect(box, rect))) return false;
   const from = rayBoxBoundary(box, { x: sx, y: sy });
   const line = { x1: from.x, y1: from.y, x2: tip.x, y2: tip.y };
   if (boxes.some((other) => segmentHitsBox(line, other))) return false;
   if (leaders.some((other) => segmentsCross(line, other))) return false;
   return true;
+}
+
+function boxOutsideCircle(box, cx, cy, radius, gap = 0.8) {
+  const nearestX = Math.max(box.x, Math.min(cx, box.x + box.w));
+  const nearestY = Math.max(box.y, Math.min(cy, box.y + box.h));
+  return Math.hypot(nearestX - cx, nearestY - cy) >= radius + gap;
 }
 
 function insideFrame(box) {
@@ -280,8 +287,7 @@ function rayBoxBoundary(box, origin) {
   return hits[0] ? { x: hits[0].x, y: hits[0].y } : { x: box.cx, y: box.cy };
 }
 
-function segmentHitsBox(line, box) {
-  const pad = 0.3;
+function segmentHitsBox(line, box, pad = 0.3) {
   const rect = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
   const inside = (x, y) => x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
   if (inside(line.x1, line.y1) || inside(line.x2, line.y2)) return true;
@@ -379,6 +385,7 @@ function buildDimensions(model, views, layout) {
   const featureSet = collectFeatures(model);
   const titles = titleBoxes(layout);
   const leaders = [];
+  const centreOnSheet = ['front', 'top', 'right'].flatMap((id) => sheetCentreLines(model, views[id], place[id], scale));
   for (const group of featureSet.diameters) {
     if (envelopeDiameters.has(formatDim(group.size))) continue;
     const sample = group.features[0];
@@ -400,6 +407,7 @@ function buildDimensions(model, views, layout) {
       boxes: [...boxes, ...titles],
       leaders,
       rings,
+      centreLines: centreOnSheet,
     });
     if (placed) {
       boxes.push(placed.box);
@@ -518,7 +526,15 @@ function buildDimensions(model, views, layout) {
   for (const dim of dims) {
     if (!dim.radial) dim.box = clampToFrame(dim.box);
   }
-  return { dims, titles };
+  return { dims, titles, centreLines: centreOnSheet };
+}
+
+function sheetCentreLines(model, view, place, scale) {
+  return centreLines(model, view).map(([[x1, y1], [x2, y2]]) => {
+    const [sx1, sy1] = toSheet(x1, y1, place, scale);
+    const [sx2, sy2] = toSheet(x2, y2, place, scale);
+    return { x1: sx1, y1: sy1, x2: sx2, y2: sy2 };
+  });
 }
 
 function clampToFrame(box) {
@@ -727,6 +743,7 @@ export function composeSheet({ model, views, options = {} }) {
     })),
     layout: layout.place,
     titles,
+    centreLines: built.centreLines,
     warnings,
     sheet: SHEET,
     title,

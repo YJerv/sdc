@@ -125,6 +125,15 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       }
     }
     const diameters = drawing.dimensions.filter((dim) => dim.kind === 'diameter');
+    for (const dim of diameters) {
+      assert.ok(
+        boxOutsideCircle(dim.box, dim.feature.x, dim.feature.y, dim.feature.r),
+        `${file} ${dim.text} sits inside its circle`,
+      );
+      for (const line of drawing.centreLines) {
+        assert.equal(segmentHitsBox(line, dim.box), false, `${file} ${dim.text} crosses a centre line`);
+      }
+    }
     if (diameters.length >= 2) {
       const xs = diameters.map((dim) => dim.box.cx);
       const ys = diameters.map((dim) => dim.box.cy);
@@ -177,6 +186,26 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
     console.log(`| ${row.file} | ${row.ms.toFixed(0)} ms | ${row.scale} | ${row.overall.map((value) => value.toFixed(2)).join(', ')} |`);
   }
 });
+
+function boxOutsideCircle(box, cx, cy, radius) {
+  const nearestX = Math.max(box.x, Math.min(cx, box.x + box.w));
+  const nearestY = Math.max(box.y, Math.min(cy, box.y + box.h));
+  return Math.hypot(nearestX - cx, nearestY - cy) >= radius - 0.05;
+}
+
+function segmentHitsBox(line, box) {
+  const pad = 0.4;
+  const rect = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
+  const inside = (x, y) => x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+  if (inside(line.x1, line.y1) || inside(line.x2, line.y2)) return true;
+  const edges = [
+    { x1: rect.x, y1: rect.y, x2: rect.x + rect.w, y2: rect.y },
+    { x1: rect.x + rect.w, y1: rect.y, x2: rect.x + rect.w, y2: rect.y + rect.h },
+    { x1: rect.x, y1: rect.y + rect.h, x2: rect.x + rect.w, y2: rect.y + rect.h },
+    { x1: rect.x, y1: rect.y, x2: rect.x, y2: rect.y + rect.h },
+  ];
+  return edges.some((edge) => segmentsCross(line, edge));
+}
 
 function segmentsCross(a, b) {
   const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
