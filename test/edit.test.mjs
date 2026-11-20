@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import occtimportjs from 'occt-import-js';
 import { createDrawing } from '../js/drawing/create.js';
-import { createSheetEditor, dimensionForOne, dimensionForPair, pickDimension, pickEntity } from '../js/drawing/edit.js';
+import { createSheetEditor, dimensionForOne, dimensionForPair, exportSheet, pickDimension, pickEntity } from '../js/drawing/edit.js';
 import { hitSlopMm } from '../js/sheet-gestures.js';
 import { STEP_IMPORT_PARAMS } from '../js/step-model.js';
 
@@ -48,6 +48,25 @@ test('one feature and two features add dimensions clear of the others', { timeou
   const added = editor.add(one);
   assert.match(editor.svg(), new RegExp(`data-dim-id="${added.id}"`));
   assert.match(editor.svg(), /Ø20/);
+});
+
+test('undo restores add and delete, and export uses the edited sheet', { timeout: 60000 }, async () => {
+  const occt = await occtimportjs();
+  const bytes = new Uint8Array(await readFile(new URL('./fixtures/cone_50x12_v2.step', import.meta.url)));
+  const drawing = createDrawing(occt.ReadStepFile(bytes, STEP_IMPORT_PARAMS), { title: 'cone', date: '19 Nov 2026' });
+  const editor = createSheetEditor(drawing);
+  const hole = editor.dimensions().find((dim) => dim.text.includes('Ø20'));
+  const edge = drawing.entities.find((entity) => entity.type === 'edge');
+  assert.equal(editor.undo(), false);
+  assert.equal(editor.remove(hole.id), true);
+  const added = editor.add(dimensionForOne(edge, editor.dimensions()));
+  assert.equal(exportSheet(editor).includes('Ø20'), false);
+  assert.match(exportSheet(editor), new RegExp(`data-dim-id="${added.id}"`));
+  assert.equal(editor.undo(), true);
+  assert.equal(exportSheet(editor).includes(`data-dim-id="${added.id}"`), false);
+  assert.equal(editor.undo(), true);
+  assert.match(exportSheet(editor), /Ø20/);
+  assert.equal(editor.undo(), false);
 });
 
 function overlaps(a, b) {

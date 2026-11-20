@@ -654,6 +654,18 @@ document.querySelector('#edit-confirm-no').addEventListener('click', () => {
 });
 editOne.addEventListener('click', () => setFeatureMode('one'));
 editTwo.addEventListener('click', () => setFeatureMode('two'));
+document.querySelector('#edit-undo').addEventListener('click', () => {
+  if (!sheetEditor || !sheetEditor.undo()) {
+    editNote('Nothing to undo.');
+    return;
+  }
+  selectedFeatures = [];
+  pendingDelete = null;
+  editConfirm.hidden = true;
+  editUpdate.disabled = true;
+  refreshEditSheet();
+  editNote('Undone. Export uses this sheet.');
+});
 editUpdate.addEventListener('click', () => {
   if (!sheetEditor || !currentDrawing) return;
   const chosen = selectedFeatures.map((id) => currentDrawing.entities.find((item) => item.id === id));

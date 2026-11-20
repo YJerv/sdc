@@ -10,26 +10,43 @@ export function createSheetEditor(drawing) {
   let dims = cloneDims(drawing.dimensions).map((dim, index) => ({ ...dim, id: dim.id || `dim-${index}` }));
   let svg = spliceDimensions(drawing.svg, dimensionMarkup(dims));
   let added = 0;
+  const past = [];
   function redraw() {
     svg = spliceDimensions(svg, dimensionMarkup(dims));
+  }
+  function remember() {
+    past.push(cloneDims(dims));
   }
   return {
     svg: () => svg,
     dimensions: () => cloneDims(dims),
     remove(id) {
       if (!dims.some((dim) => dim.id === id)) return false;
+      remember();
       dims = dims.filter((dim) => dim.id !== id);
       redraw();
       return true;
     },
     add(dim) {
       if (!dim) return null;
+      remember();
       const next = { ...dim, id: dim.id || `add-${added += 1}`, box: { ...dim.box } };
       dims = [...dims, next];
       redraw();
       return next;
     },
+    undo() {
+      if (!past.length) return false;
+      dims = past.pop();
+      redraw();
+      return true;
+    },
   };
+}
+
+/** PNG and PDF export this string, which includes add and delete edits. */
+export function exportSheet(editor) {
+  return editor.svg();
 }
 
 function textBox(text, cx, cy) {
