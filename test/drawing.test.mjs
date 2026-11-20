@@ -8,6 +8,7 @@ import { createDrawing } from '../js/drawing/create.js';
 import { prepareModel } from '../js/drawing/geometry.js';
 import { collectFeatures, withoutNearDuplicates } from '../js/drawing/features.js';
 import { formatDim, viewFrames } from '../js/drawing/geometry.js';
+import { formatSheetDate } from '../js/drawing/sheet.js';
 import { JET_LOGO } from '../js/drawing/jet-logo.js';
 import { pdfFromJpeg } from '../js/pdf-image.js';
 import { canExport, exportPolicy } from '../js/export-policy.js';
@@ -30,6 +31,9 @@ test('sheet helpers', () => {
   assert.equal(exportPolicy.unlocked, true);
   const logoFile = readFileSync(new URL('../icons/jet-logo.png', import.meta.url)).toString('base64');
   assert.equal(JET_LOGO, `data:image/png;base64,${logoFile}`);
+  const lateUtc = new Date('2026-11-20T03:30:00Z');
+  assert.equal(formatSheetDate(lateUtc, 'Etc/GMT+4'), '19 Nov 2026');
+  assert.equal(formatSheetDate(lateUtc, 'UTC'), '20 Nov 2026');
   const kept = withoutNearDuplicates(
     [{ size: 48.3, features: [{ hole: false }] }, { size: 46, features: [{ hole: false }] }, { size: 20, features: [{ hole: true }] }],
     [50],

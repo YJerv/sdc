@@ -734,11 +734,17 @@ export function composeSheet({ model, views, options = {} }) {
   };
 }
 
-export function formatSheetDate(date) {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** Local calendar date, for example "19 Nov 2026". Pass timeZone only in tests. */
+export function formatSheetDate(date = new Date(), timeZone) {
   const value = date instanceof Date ? date : new Date(date);
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${day} ${months[value.getMonth()]} ${value.getFullYear()}`;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone,
+  }).formatToParts(value);
+  const part = (type) => parts.find((item) => item.type === type)?.value || '';
+  return `${part('day')} ${part('month')} ${part('year')}`;
 }
 
 function renderSvg({ layout, views, dimensions, scaleLabel, title, date, logoHref }) {
