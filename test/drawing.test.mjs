@@ -178,6 +178,47 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       assert.ok(smaller.layout.front.w < drawing.layout.front.w);
       assert.match(bigger.svg, />5:1</);
       assert.match(smaller.svg, />1:2</);
+      const frame = viewFrames().iso;
+      const model = prepareModel(result);
+      const hole = model.circles.holes.find((circle) => circle.diameter > 18 && circle.diameter < 22);
+      const axis = hole.normal;
+      const eye = frame.eye;
+      const along = eye[0] * axis[0] + eye[1] * axis[1] + eye[2] * axis[2];
+      const radial = [eye[0] - axis[0] * along, eye[1] - axis[1] * along, eye[2] - axis[2] * along];
+      const radialLength = Math.hypot(...radial);
+      const buried = hole.center.map((value, index) => value - radial[index] / radialLength * 18);
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      const project = (point) => [
+        point[0] * frame.right[0] + point[1] * frame.right[1] + point[2] * frame.right[2],
+        point[0] * frame.up[0] + point[1] * frame.up[1] + point[2] * frame.up[2],
+      ];
+      for (const point of model.points) {
+        const [x, y] = project(point);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      const [bx, by] = project(buried);
+      const px = bx - (minX + maxX) / 2;
+      const py = by - (minY + maxY) / 2;
+      let nearest = Infinity;
+      for (const path of iso.paths) {
+        if (path.hidden) continue;
+        for (let i = 1; i < path.points.length; i += 1) {
+          const a = path.points[i - 1];
+          const b = path.points[i];
+          const dx = b[0] - a[0];
+          const dy = b[1] - a[1];
+          const length = dx * dx + dy * dy || 1;
+          const t = Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / length));
+          nearest = Math.min(nearest, Math.hypot(px - (a[0] + dx * t), py - (a[1] + dy * t)));
+        }
+      }
+      assert.ok(nearest > 2, `occluded cone face still has a line ${nearest.toFixed(2)} mm away`);
     }
     const features = collectFeatures(prepareModel(result));
     for (const group of features.radii) {

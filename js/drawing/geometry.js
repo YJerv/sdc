@@ -106,7 +106,7 @@ function framesFromAxes(eye, up, right) {
   if (length(isoUp) < 0.2) isoUp = [0, 0, 1];
   const isoRight = norm(cross(isoUp, isoEye));
   isoUp = norm(cross(isoEye, isoRight));
-  const iso = { id: 'iso', eye: isoEye, up: isoUp, right: isoRight, hidden: false };
+  const iso = { id: 'iso', eye: isoEye, up: isoUp, right: isoRight, hidden: true, dashed: false };
   return { front, top, right: side, iso };
 }
 
@@ -197,7 +197,7 @@ function analyticGenerators(model, frame) {
 
 function boundaryAndSilhouette(model, eye) {
   const merged = new Map();
-  function addSegment(a, b, triIds, kind) {
+  function addSegment(a, b, triIds, kind, normal) {
     const qa = quantKey(a);
     const qb = quantKey(b);
     const key = qa < qb ? `${qa}|${qb}` : `${qb}|${qa}`;
@@ -205,9 +205,13 @@ function boundaryAndSilhouette(model, eye) {
     if (found) {
       for (const id of triIds) if (!found.tris.includes(id)) found.tris.push(id);
       if (kind === 'silhouette') found.kind = 'silhouette';
+      if (normal && found.normal && kind !== 'silhouette' && found.kind !== 'silhouette') {
+        const agree = found.normal[0] * normal[0] + found.normal[1] * normal[1] + found.normal[2] * normal[2];
+        if (agree > 0.96) found.drop = true;
+      }
       return;
     }
-    merged.set(key, { a, b, tris: triIds.slice(), kind });
+    merged.set(key, { a, b, tris: triIds.slice(), kind, normal, drop: false });
   }
 
   for (const face of model.faces) {
@@ -237,10 +241,12 @@ function boundaryAndSilhouette(model, eye) {
       if (!boundary && !silhouette) continue;
       const a = vertex(entry.position, entry.i);
       const b = vertex(entry.position, entry.j);
-      addSegment(a, b, entry.tris, silhouette && !boundary ? 'silhouette' : 'edge');
+      const source = model.tris[entry.tris[0]];
+      const normal = source ? [source.nx, source.ny, source.nz] : null;
+      addSegment(a, b, entry.tris, silhouette && !boundary ? 'silhouette' : 'edge', normal);
     }
   }
-  return [...merged.values()];
+  return [...merged.values()].filter((segment) => !segment.drop);
 }
 
 function quantKey(p) {
@@ -301,8 +307,9 @@ function projectFrame(model, frame) {
     midY: (minY + maxY) / 2,
   };
   const span = Math.max(extent.w, extent.h, 1);
-  const cell = Math.max(4, span / 28);
-  const tol = Math.max(0.2, span * 0.004);
+  const cell = Math.max(3, span / 36);
+  const tol = Math.max(0.15, span * 0.003);
+  const clip = frame.dashed === false;
   const projected = model.tris.map((tri) => {
     const ax = tri.ax * frame.right[0] + tri.ay * frame.right[1] + tri.az * frame.right[2];
     const ay = tri.ax * frame.up[0] + tri.ay * frame.up[1] + tri.az * frame.up[2];
@@ -353,16 +360,11 @@ function projectFrame(model, frame) {
   const raw = boundaryAndSilhouette(model, frame.eye);
   for (const segment of analyticGenerators(model, frame)) raw.push(segment);
   const pieces = [];
-  const maxLen = Math.max(1.5, span / 45);
+  const maxLen = clip ? Math.max(0.7, span / 90) : Math.max(1.5, span / 45);
   for (const segment of raw) {
     for (const piece of subdivide(segment, maxLen)) {
-      const mid = [
-        (piece.a[0] + piece.b[0]) / 2,
-        (piece.a[1] + piece.b[1]) / 2,
-        (piece.a[2] + piece.b[2]) / 2,
-      ];
-      const hidden = frame.hidden ? hiddenAt(mid, piece.tris) : false;
-      if (!frame.hidden && hidden) continue;
+      const hidden = frame.hidden ? segmentHidden(piece, hiddenAt) : false;
+      if (hidden && (clip || !frame.hidden)) continue;
       const ax = dot(piece.a, frame.right) - extent.midX;
       const ay = dot(piece.a, frame.up) - extent.midY;
       const bx = dot(piece.b, frame.right) - extent.midX;
@@ -374,6 +376,19 @@ function projectFrame(model, frame) {
   let paths = chainPaths(pieces).filter((path) => pathLength(path) >= 0.9);
   if (!frame.hidden) paths = paths.filter((path) => !path.hidden);
   return { extent, paths, span };
+}
+
+function segmentHidden(piece, hiddenAt) {
+  const ignore = piece.tris || [];
+  for (const t of [0.2, 0.5, 0.8]) {
+    const point = [
+      piece.a[0] + (piece.b[0] - piece.a[0]) * t,
+      piece.a[1] + (piece.b[1] - piece.a[1]) * t,
+      piece.a[2] + (piece.b[2] - piece.a[2]) * t,
+    ];
+    if (hiddenAt(point, ignore)) return true;
+  }
+  return false;
 }
 
 function pathLength(path) {
