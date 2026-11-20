@@ -1,4 +1,4 @@
-const CACHE = 'sdc-shell-3';
+const CACHE = 'sdc-shell-4';
 
 const ASSETS = [
   './index.html',
@@ -11,6 +11,7 @@ const ASSETS = [
   './js/orient.js',
   './js/settings.js',
   './js/top-arm.js',
+  './js/sheet-gestures.js',
   './js/drawing/geometry.js',
   './js/drawing/features.js',
   './js/drawing/sheet.js',

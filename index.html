@@ -116,6 +116,7 @@
   <section id="sheet-preview" class="sheet-preview" hidden>
     <div class="sheet-bar">
       <button type="button" id="sheet-back">Back to model</button>
+      <button type="button" id="edit-drawing">Edit drawing</button>
       <button type="button" id="sheet-out" aria-label="Zoom out">−</button>
       <button type="button" id="sheet-in" aria-label="Zoom in">+</button>
       <button type="button" id="sheet-fit">Fit</button>
@@ -125,6 +126,19 @@
     <p class="hint sheet-free" id="sheet-note">Exports are free for now. A one-off unlock will be added later.</p>
     <div id="sheet-viewport" class="sheet-viewport">
       <div id="sheet-stage" class="sheet-stage"></div>
+    </div>
+  </section>
+
+  <section id="sheet-edit" class="sheet-preview" hidden>
+    <div class="sheet-bar">
+      <button type="button" id="edit-back">Back to sheet</button>
+      <button type="button" id="edit-out" aria-label="Zoom out">−</button>
+      <button type="button" id="edit-in" aria-label="Zoom in">+</button>
+      <button type="button" id="edit-fit">Fit</button>
+    </div>
+    <p class="hint" id="edit-note">Pinch or scroll to zoom, and drag to pan. Zoom in to pick a small dimension.</p>
+    <div id="edit-viewport" class="sheet-viewport">
+      <div id="edit-stage" class="sheet-stage"></div>
     </div>
   </section>
 

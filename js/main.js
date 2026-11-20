@@ -9,6 +9,7 @@ import { createViewer } from './viewer.js';
 import { createDrawing } from './drawing/create.js';
 import { readGridVisible, writeGridVisible } from './settings.js';
 import { exportDrawingPdf, exportDrawingPng } from './export-client.js';
+import { panBy, zoomBy } from './sheet-gestures.js';
 
 const fileInput = document.querySelector('#file-input');
 const stage = document.querySelector('#stage');
@@ -411,6 +412,85 @@ createButton.addEventListener('click', () => {
 document.querySelector('#sheet-back').addEventListener('click', () => {
   sheetPreview.hidden = true;
 });
+
+const sheetEdit = document.querySelector('#sheet-edit');
+const editStage = document.querySelector('#edit-stage');
+const editViewport = document.querySelector('#edit-viewport');
+const editState = { zoom: 1, panX: 0, panY: 0 };
+
+function applyEditTransform() {
+  editStage.style.transform = `translate(${editState.panX}px, ${editState.panY}px) scale(${editState.zoom})`;
+}
+
+function openEdit() {
+  if (!currentSvg) return;
+  editState.zoom = 1;
+  editState.panX = 0;
+  editState.panY = 0;
+  applyEditTransform();
+  editStage.innerHTML = currentSvg;
+  sheetPreview.hidden = true;
+  sheetEdit.hidden = false;
+}
+
+document.querySelector('#edit-drawing').addEventListener('click', openEdit);
+document.querySelector('#edit-back').addEventListener('click', () => {
+  sheetEdit.hidden = true;
+  sheetPreview.hidden = false;
+});
+document.querySelector('#edit-in').addEventListener('click', () => {
+  editState.zoom = zoomBy(editState.zoom, 1.25);
+  applyEditTransform();
+});
+document.querySelector('#edit-out').addEventListener('click', () => {
+  editState.zoom = zoomBy(editState.zoom, 0.8);
+  applyEditTransform();
+});
+document.querySelector('#edit-fit').addEventListener('click', () => {
+  editState.zoom = 1;
+  editState.panX = 0;
+  editState.panY = 0;
+  applyEditTransform();
+});
+editViewport.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  editState.zoom = zoomBy(editState.zoom, event.deltaY < 0 ? 1.1 : 0.9);
+  applyEditTransform();
+}, { passive: false });
+const editPointers = new Map();
+let editDrag = null;
+editViewport.addEventListener('pointerdown', (event) => {
+  editViewport.setPointerCapture(event.pointerId);
+  editPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  editDrag = { x: event.clientX, y: event.clientY, panX: editState.panX, panY: editState.panY };
+});
+editViewport.addEventListener('pointermove', (event) => {
+  if (!editPointers.has(event.pointerId)) return;
+  editPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (editPointers.size === 2) {
+    const [a, b] = [...editPointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    if (editDrag.pinch) editState.zoom = zoomBy(editDrag.zoom, dist / editDrag.pinch);
+    else {
+      editDrag.pinch = dist;
+      editDrag.zoom = editState.zoom;
+    }
+    applyEditTransform();
+    return;
+  }
+  if (!editDrag || editPointers.size !== 1) return;
+  const next = panBy({ x: editDrag.panX, y: editDrag.panY }, event.clientX - editDrag.x, event.clientY - editDrag.y);
+  editState.panX = next.x;
+  editState.panY = next.y;
+  applyEditTransform();
+});
+function endEditPointer(event) {
+  editPointers.delete(event.pointerId);
+  if (editPointers.size === 0) editDrag = null;
+  else editDrag = { ...editDrag, pinch: null, panX: editState.panX, panY: editState.panY, x: event.clientX, y: event.clientY, zoom: editState.zoom };
+}
+editViewport.addEventListener('pointerup', endEditPointer);
+editViewport.addEventListener('pointercancel', endEditPointer);
 document.querySelector('#sheet-in').addEventListener('click', () => {
   sheetZoom = Math.min(6, sheetZoom * 1.2);
   applySheetTransform();
