@@ -10,7 +10,7 @@ import { createDrawing } from './drawing/create.js';
 import { readGridVisible, writeGridVisible } from './settings.js';
 import { exportDrawingPdf, exportDrawingPng } from './export-client.js';
 import { panBy, zoomBy, hitSlopMm } from './sheet-gestures.js';
-import { createSheetEditor, pickDimension } from './drawing/edit.js';
+import { createSheetEditor, dimensionForOne, dimensionForPair, pickDimension, pickEntity } from './drawing/edit.js';
 
 const fileInput = document.querySelector('#file-input');
 const stage = document.querySelector('#stage');
@@ -423,6 +423,11 @@ const editState = { zoom: 1, panX: 0, panY: 0 };
 let sheetEditor = null;
 let deleteArmed = false;
 let pendingDelete = null;
+let featureMode = null;
+let selectedFeatures = [];
+const editOne = document.querySelector('#edit-one');
+const editTwo = document.querySelector('#edit-two');
+const editUpdate = document.querySelector('#edit-update');
 const editDelete = document.querySelector('#edit-delete');
 const editConfirm = document.querySelector('#edit-confirm');
 
@@ -433,17 +438,75 @@ function refreshEditSheet() {
     const node = editStage.querySelector(`[data-dim-id="${pendingDelete}"]`);
     if (node) node.setAttribute('data-selected', 'true');
   }
+  markPicks();
+}
+
+function markPicks() {
+  const svg = editStage.querySelector('svg');
+  if (!svg) return;
+  svg.querySelector('#picks')?.remove();
+  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  group.setAttribute('id', 'picks');
+  for (const id of selectedFeatures) {
+    const entity = (currentDrawing?.entities || []).find((item) => item.id === id);
+    if (!entity) continue;
+    if (entity.type === 'circle') {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', String(entity.cx));
+      circle.setAttribute('cy', String(entity.cy));
+      circle.setAttribute('r', String(Math.max(entity.r, 2.2)));
+      circle.setAttribute('fill', 'none');
+      circle.setAttribute('stroke', '#1f4d6e');
+      circle.setAttribute('stroke-width', '0.8');
+      group.appendChild(circle);
+    } else {
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', String(entity.x1));
+      line.setAttribute('y1', String(entity.y1));
+      line.setAttribute('x2', String(entity.x2));
+      line.setAttribute('y2', String(entity.y2));
+      line.setAttribute('stroke', '#1f4d6e');
+      line.setAttribute('stroke-width', '1.2');
+      group.appendChild(line);
+    }
+  }
+  svg.appendChild(group);
 }
 
 function setDeleteArmed(armed) {
   deleteArmed = armed;
   editDelete.setAttribute('aria-pressed', armed ? 'true' : 'false');
+  if (armed) {
+    featureMode = null;
+    selectedFeatures = [];
+    editOne.setAttribute('aria-pressed', 'false');
+    editTwo.setAttribute('aria-pressed', 'false');
+    editUpdate.disabled = true;
+  }
   editNote(armed ? 'Tap a dimension to delete it.' : 'Pinch or scroll to zoom, and drag to pan. Zoom in to pick a small dimension.');
   if (!armed) {
     pendingDelete = null;
     editConfirm.hidden = true;
     refreshEditSheet();
   }
+}
+
+function setFeatureMode(mode) {
+  featureMode = featureMode === mode ? null : mode;
+  selectedFeatures = [];
+  editUpdate.disabled = true;
+  if (featureMode) {
+    deleteArmed = false;
+    pendingDelete = null;
+    editConfirm.hidden = true;
+    editDelete.setAttribute('aria-pressed', 'false');
+  }
+  editOne.setAttribute('aria-pressed', featureMode === 'one' ? 'true' : 'false');
+  editTwo.setAttribute('aria-pressed', featureMode === 'two' ? 'true' : 'false');
+  if (featureMode === 'one') editNote('Tap a hole, arc or straight edge.');
+  else if (featureMode === 'two') editNote('Tap two features in the same view.');
+  else editNote('Pinch or scroll to zoom, and drag to pan. Zoom in to pick a small dimension.');
+  markPicks();
 }
 
 function editNote(text) {
@@ -470,6 +533,11 @@ function openEdit() {
   sheetEditor = createSheetEditor(currentDrawing);
   currentSvg = sheetEditor.svg();
   pendingDelete = null;
+  featureMode = null;
+  selectedFeatures = [];
+  editOne.setAttribute('aria-pressed', 'false');
+  editTwo.setAttribute('aria-pressed', 'false');
+  editUpdate.disabled = true;
   setDeleteArmed(false);
   editState.zoom = 1;
   editState.panX = 0;
@@ -547,6 +615,25 @@ function endEditPointer(event) {
     editConfirm.hidden = false;
     editNote('Delete this dimension?');
     refreshEditSheet();
+    return;
+  }
+  if (featureMode && moved < 8 && editPointers.size === 0) {
+    const point = sheetPoint(event);
+    if (!point || !currentDrawing) return;
+    const entity = pickEntity(currentDrawing.entities || [], point.x, point.y, hitSlopMm(editState.zoom));
+    if (!entity) return;
+    if (featureMode === 'one') selectedFeatures = [entity.id];
+    else if (!selectedFeatures.length || selectedFeatures[0] === entity.id) selectedFeatures = [entity.id];
+    else {
+      const first = currentDrawing.entities.find((item) => item.id === selectedFeatures[0]);
+      if (first && first.view !== entity.view) {
+        editNote('Choose two features in the same view.');
+        return;
+      }
+      selectedFeatures = [selectedFeatures[0], entity.id];
+    }
+    editUpdate.disabled = featureMode === 'one' ? selectedFeatures.length !== 1 : selectedFeatures.length !== 2;
+    markPicks();
   }
 }
 editDelete.addEventListener('click', () => {
@@ -564,6 +651,24 @@ document.querySelector('#edit-confirm-no').addEventListener('click', () => {
   pendingDelete = null;
   editConfirm.hidden = true;
   setDeleteArmed(false);
+});
+editOne.addEventListener('click', () => setFeatureMode('one'));
+editTwo.addEventListener('click', () => setFeatureMode('two'));
+editUpdate.addEventListener('click', () => {
+  if (!sheetEditor || !currentDrawing) return;
+  const chosen = selectedFeatures.map((id) => currentDrawing.entities.find((item) => item.id === id));
+  const dim = featureMode === 'two'
+    ? dimensionForPair(chosen[0], chosen[1], sheetEditor.dimensions())
+    : dimensionForOne(chosen[0], sheetEditor.dimensions());
+  if (!dim) {
+    editNote('Those features do not make a dimension.');
+    return;
+  }
+  sheetEditor.add(dim);
+  selectedFeatures = [];
+  editUpdate.disabled = true;
+  refreshEditSheet();
+  editNote('Dimension added. Export uses this sheet.');
 });
 editViewport.addEventListener('pointerup', endEditPointer);
 editViewport.addEventListener('pointercancel', endEditPointer);

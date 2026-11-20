@@ -379,6 +379,7 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 }
 
 .edit-confirm { display: flex; align-items: center; gap: 0.5rem; }
+.edit-label { align-self: center; color: var(--muted); font-size: 0.85rem; }
 
 #edit-stage [data-selected="true"] text { fill: #8c2f2f; }
 #edit-stage [data-selected="true"] line,

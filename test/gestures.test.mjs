@@ -16,4 +16,7 @@ test('the edit sheet zooms, pans, and keeps a generous tap target', () => {
   assert.match(html, /id="edit-back"/);
   assert.match(html, /Back to sheet/);
   assert.match(html, /id="sheet-edit"/);
+  assert.match(html, /id="edit-one"/);
+  assert.match(html, /id="edit-two"/);
+  assert.match(html, /id="edit-update"/);
 });
