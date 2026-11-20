@@ -119,6 +119,14 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
         const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
         assert.equal(viewSvg.includes('6 1.3 1.1 1.3'), true, `${file} ${id} is missing centre lines`);
       }
+      const topCentres = centreSegments(drawing.svg, 'top');
+      assert.equal(topCentres.length, 2, `cone top centre mark has ${topCentres.length} lines`);
+      for (let i = 0; i < topCentres.length; i += 1) {
+        for (let j = i + 1; j < topCentres.length; j += 1) {
+          const gap = parallelCentreGap(topCentres[i], topCentres[j]) / drawing.scale;
+          assert.ok(gap > 0.3, `cone top centre lines are ${gap.toFixed(3)} mm apart`);
+        }
+      }
       for (const id of ['front', 'right']) {
         const view = drawing.views.find((item) => item.id === id);
         const gap = outlineGap(view.paths);
@@ -320,6 +328,26 @@ function segmentsCross(a, b) {
   const d4 = side(r, s, q);
   if (d1 === 0 || d2 === 0 || d3 === 0 || d4 === 0) return false;
   return (d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0);
+}
+
+function centreSegments(svg, id) {
+  const chunk = svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+  return [...chunk.matchAll(/<line x1="([^"]+)" y1="([^"]+)" x2="([^"]+)" y2="([^"]+)"[^>]*stroke-dasharray="6 1\.3 1\.1 1\.3"/g)]
+    .map((match) => match.slice(1, 5).map(Number));
+}
+
+function parallelCentreGap(a, b) {
+  const ax = a[2] - a[0];
+  const ay = a[3] - a[1];
+  const bx = b[2] - b[0];
+  const by = b[3] - b[1];
+  const al = Math.hypot(ax, ay) || 1;
+  const bl = Math.hypot(bx, by) || 1;
+  const cross = Math.abs((ax / al) * (by / bl) - (ay / al) * (bx / bl));
+  if (cross > 0.05) return Infinity;
+  const mx = (b[0] + b[2]) / 2;
+  const my = (b[1] + b[3]) / 2;
+  return Math.abs(ay * (mx - a[0]) - ax * (my - a[1])) / al;
 }
 
 function outlineGap(paths) {

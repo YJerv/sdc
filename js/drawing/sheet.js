@@ -722,81 +722,137 @@ function dot3(a, b) {
 }
 
 function centreLines(model, view) {
+  const notable = model.circles.all.filter((circle) => circle.hole || circle.diameter >= 8);
   const lines = [];
-  const used = new Set();
-  for (const circle of model.circles.all) {
-    if (!circle.hole && circle.diameter < 8) continue;
-    const align = Math.abs(dot3(circle.normal, view.frame.eye));
-    const cx = dot3(circle.center, view.frame.right) - view.extent.midX;
-    const cy = dot3(circle.center, view.frame.up) - view.extent.midY;
-    if (align > 0.82) {
-      const extra = circle.radius + 2.5;
-      lines.push([[cx - extra, cy], [cx + extra, cy]]);
-      lines.push([[cx, cy - extra], [cx, cy + extra]]);
-    }
+  const faceOn = notable.filter((circle) => Math.abs(dot3(circle.normal, view.frame.eye)) > 0.82);
+  for (const cluster of clusterByCentre(faceOn)) {
+    const radius = Math.min(...cluster.map((circle) => circle.radius));
+    const reach = Math.max(radius + 3, 6);
+    const [cx, cy] = projectCentre(meanPoint(cluster), view);
+    lines.push([[cx - reach, cy], [cx + reach, cy]]);
+    lines.push([[cx, cy - reach], [cx, cy + reach]]);
   }
-  const axes = [];
-  for (const circle of model.circles.all) {
-    if (!circle.hole && circle.diameter < 8) continue;
-    const key = `${Math.round(circle.center[0])},${Math.round(circle.center[1])},${Math.round(circle.center[2])},${Math.round(circle.normal[0] * 5)}`;
-    if (used.has(key)) continue;
-    const group = model.circles.all.filter((other) => coaxial(circle, other));
-    for (const item of group) {
-      used.add(`${Math.round(item.center[0])},${Math.round(item.center[1])},${Math.round(item.center[2])},${Math.round(item.normal[0] * 5)}`);
-    }
-    axes.push(group);
-  }
-  for (const group of axes) {
-    const circle = group[0];
-    const align = Math.abs(dot3(circle.normal, view.frame.eye));
-    if (align > 0.35) continue;
-    const origin = [
-      dot3(circle.center, view.frame.right) - view.extent.midX,
-      dot3(circle.center, view.frame.up) - view.extent.midY,
-    ];
-    const axis = [
-      dot3(circle.normal, view.frame.right),
-      dot3(circle.normal, view.frame.up),
-    ];
-    const hyp = Math.hypot(axis[0], axis[1]) || 1;
-    axis[0] /= hyp;
-    axis[1] /= hyp;
-    let minT = 0;
-    let maxT = 0;
-    for (const other of group) {
-      const p = [
-        dot3(other.center, view.frame.right) - view.extent.midX,
-        dot3(other.center, view.frame.up) - view.extent.midY,
-      ];
-      const t = (p[0] - origin[0]) * axis[0] + (p[1] - origin[1]) * axis[1];
-      minT = Math.min(minT, t);
-      maxT = Math.max(maxT, t);
-    }
-    if (maxT - minT < 1) {
-      minT = -circle.radius;
-      maxT = circle.radius;
+  const edgeOn = notable.filter((circle) => Math.abs(dot3(circle.normal, view.frame.eye)) <= 0.35);
+  for (const cluster of clusterByCentre(edgeOn)) {
+    const centre = meanPoint(cluster);
+    const origin = projectCentre(centre, view);
+    const axis = projectedAxis(cluster[0].normal, view);
+    const minX = view.extent.minX - view.extent.midX;
+    const maxX = view.extent.maxX - view.extent.midX;
+    const minY = view.extent.minY - view.extent.midY;
+    const maxY = view.extent.maxY - view.extent.midY;
+    let minT = Infinity;
+    let maxT = -Infinity;
+    for (const [x, y] of [[minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]]) {
+      const t = (x - origin[0]) * axis[0] + (y - origin[1]) * axis[1];
+      if (t < minT) minT = t;
+      if (t > maxT) maxT = t;
     }
     lines.push([
       [origin[0] + axis[0] * (minT - 3), origin[1] + axis[1] * (minT - 3)],
       [origin[0] + axis[0] * (maxT + 3), origin[1] + axis[1] * (maxT + 3)],
     ]);
   }
-  return lines;
+  return dedupeCentreLines(lines);
 }
 
-function coaxial(a, b) {
-  const nd = Math.abs(dot3(a.normal, b.normal));
-  if (Math.abs(nd - 1) > 0.08) return false;
+function clusterByCentre(circles) {
+  const parent = circles.map((_, index) => index);
+  const find = (index) => {
+    let at = index;
+    while (parent[at] !== at) at = parent[at];
+    return at;
+  };
+  for (let i = 0; i < circles.length; i += 1) {
+    for (let j = i + 1; j < circles.length; j += 1) {
+      if (!sameCentre(circles[i], circles[j])) continue;
+      const a = find(i);
+      const b = find(j);
+      if (a !== b) parent[b] = a;
+    }
+  }
+  const groups = new Map();
+  circles.forEach((circle, index) => {
+    const id = find(index);
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(circle);
+  });
+  return [...groups.values()];
+}
+
+function sameCentre(a, b) {
+  const aligned = Math.abs(Math.abs(dot3(a.normal, b.normal)) - 1);
+  if (aligned > 0.08) return false;
+  const radial = radialOffset(a, b);
+  // Snap the offset onto a 0.15 mm step, then treat one axis as one centre.
+  // Fitted centres of a single axis wander by about a millimetre.
+  const snapped = Math.round(radial / 0.15) * 0.15;
+  return snapped <= 0.15 || radial <= 1.2;
+}
+
+function radialOffset(a, b) {
   const dx = b.center[0] - a.center[0];
   const dy = b.center[1] - a.center[1];
   const dz = b.center[2] - a.center[2];
-  const axial = Math.abs(dx * a.normal[0] + dy * a.normal[1] + dz * a.normal[2]);
-  const crossLen = Math.hypot(
-    dy * a.normal[2] - dz * a.normal[1],
-    dz * a.normal[0] - dx * a.normal[2],
-    dx * a.normal[1] - dy * a.normal[0],
+  const along = dx * a.normal[0] + dy * a.normal[1] + dz * a.normal[2];
+  return Math.hypot(
+    dx - a.normal[0] * along,
+    dy - a.normal[1] * along,
+    dz - a.normal[2] * along,
   );
-  return crossLen < Math.max(0.7, Math.min(a.radius, b.radius) * 0.12) || axial < 0.4;
+}
+
+function meanPoint(circles) {
+  const centre = [0, 0, 0];
+  for (const circle of circles) {
+    centre[0] += circle.center[0];
+    centre[1] += circle.center[1];
+    centre[2] += circle.center[2];
+  }
+  return centre.map((value) => Math.round((value / circles.length) / 0.15) * 0.15);
+}
+
+function projectCentre(point, view) {
+  return [
+    dot3(point, view.frame.right) - view.extent.midX,
+    dot3(point, view.frame.up) - view.extent.midY,
+  ];
+}
+
+function projectedAxis(normal, view) {
+  let x = dot3(normal, view.frame.right);
+  let y = dot3(normal, view.frame.up);
+  const hyp = Math.hypot(x, y) || 1;
+  x /= hyp;
+  y /= hyp;
+  if (x < -1e-6 || (Math.abs(x) <= 1e-6 && y < 0)) {
+    x = -x;
+    y = -y;
+  }
+  return [x, y];
+}
+
+function dedupeCentreLines(lines) {
+  const kept = [];
+  for (const line of lines) {
+    const duplicate = kept.some((other) => centreGap(line, other) <= 0.3);
+    if (!duplicate) kept.push(line);
+  }
+  return kept;
+}
+
+function centreGap(a, b) {
+  const ax = a[1][0] - a[0][0];
+  const ay = a[1][1] - a[0][1];
+  const bx = b[1][0] - b[0][0];
+  const by = b[1][1] - b[0][1];
+  const al = Math.hypot(ax, ay) || 1;
+  const bl = Math.hypot(bx, by) || 1;
+  const cross = Math.abs((ax / al) * (by / bl) - (ay / al) * (bx / bl));
+  if (cross > 0.05) return Infinity;
+  const mx = (b[0][0] + b[1][0]) / 2;
+  const my = (b[0][1] + b[1][1]) / 2;
+  return Math.abs(ay * (mx - a[0][0]) - ax * (my - a[0][1])) / al;
 }
 
 function renderPaths(view, place, scale) {
