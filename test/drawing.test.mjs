@@ -104,10 +104,18 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
         assert.equal(boxesOverlap(boxes[i], boxes[j]), false, `${file} dimensions overlap: ${drawing.dimensions[i].text} and ${drawing.dimensions[j].text}`);
       }
     }
-    const iso = drawing.views.find((view) => view.id === 'iso');
-    assert.equal(iso.paths.some((path) => path.hidden), false, `${file} isometric has a hidden path`);
-    const isoSvg = drawing.svg.split('id="view-iso"')[1].split('</g>')[0];
-    assert.equal(isoSvg.includes('stroke-dasharray'), false, `${file} isometric draws a dashed line`);
+    for (const id of ['front', 'top', 'right', 'iso']) {
+      const view = drawing.views.find((item) => item.id === id);
+      assert.equal(view.paths.some((path) => path.hidden), false, `${file} ${id} has a hidden path`);
+      const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+      assert.equal(viewSvg.includes('2.4 1.15'), false, `${file} ${id} draws a hidden line`);
+    }
+    if (file === 'cone_50x12_v2.step') {
+      for (const id of ['front', 'top', 'right']) {
+        const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+        assert.equal(viewSvg.includes('6 1.3 1.1 1.3'), true, `${file} ${id} is missing centre lines`);
+      }
+    }
     if (file === 'cad_upload_1.step') {
       const topView = drawing.views.find((view) => view.id === 'top');
       const iso = drawing.views.find((view) => view.id === 'iso');
@@ -216,7 +224,7 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       const px = bx - (minX + maxX) / 2;
       const py = by - (minY + maxY) / 2;
       let nearest = Infinity;
-      for (const path of iso.paths) {
+      for (const path of drawing.views.find((view) => view.id === 'iso').paths) {
         if (path.hidden) continue;
         for (let i = 1; i < path.points.length; i += 1) {
           const a = path.points[i - 1];

@@ -887,9 +887,6 @@ function renderSvg({ layout, views, dimensions, scaleLabel, title, date, logoHre
     const drawn = renderPaths(view, place, scale);
     parts.push(`<g id="view-${id}" data-view="${id}">`);
     for (const d of drawn.visible) parts.push(`<path d="${d}" fill="none" stroke="#161616" stroke-width="0.4" stroke-linejoin="round" stroke-linecap="round"/>`);
-    if (id !== 'iso') {
-      for (const d of drawn.hidden) parts.push(`<path d="${d}" fill="none" stroke="#161616" stroke-width="0.22" stroke-dasharray="2.4 1.15" stroke-linecap="butt"/>`);
-    }
     for (const line of drawn.centres) {
       const [a, b] = line;
       const [x1, y1] = toSheet(a[0], a[1], place, scale);

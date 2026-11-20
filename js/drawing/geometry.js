@@ -98,9 +98,9 @@ export function viewFrames(frontId = 'negY', quarterTurns = 0, basis = null) {
 }
 
 function framesFromAxes(eye, up, right) {
-  const front = { id: 'front', eye, up, right, hidden: true };
-  const top = { id: 'top', eye: up.slice(), right: right.slice(), up: mul(eye, -1), hidden: true };
-  const side = { id: 'right', eye: right.slice(), up: up.slice(), right: mul(eye, -1), hidden: true };
+  const front = { id: 'front', eye, up, right, hidden: true, dashed: false };
+  const top = { id: 'top', eye: up.slice(), right: right.slice(), up: mul(eye, -1), hidden: true, dashed: false };
+  const side = { id: 'right', eye: right.slice(), up: up.slice(), right: mul(eye, -1), hidden: true, dashed: false };
   const isoEye = norm(add(add(right, up), eye));
   let isoUp = norm(sub(up, mul(isoEye, dot(up, isoEye))));
   if (length(isoUp) < 0.2) isoUp = [0, 0, 1];
@@ -197,21 +197,32 @@ function analyticGenerators(model, frame) {
 
 function boundaryAndSilhouette(model, eye) {
   const merged = new Map();
-  function addSegment(a, b, triIds, kind, normal) {
+  function addSegment(a, b, triIds, kind, normal, faceIds) {
     const qa = quantKey(a);
     const qb = quantKey(b);
     const key = qa < qb ? `${qa}|${qb}` : `${qb}|${qa}`;
     const found = merged.get(key);
     if (found) {
       for (const id of triIds) if (!found.tris.includes(id)) found.tris.push(id);
+      for (const id of faceIds) found.ignore.add(id);
       if (kind === 'silhouette') found.kind = 'silhouette';
       if (normal && found.normal && kind !== 'silhouette' && found.kind !== 'silhouette') {
         const agree = found.normal[0] * normal[0] + found.normal[1] * normal[1] + found.normal[2] * normal[2];
-        if (agree > 0.96) found.drop = true;
+        const facing = (found.normal[0] * eye[0] + found.normal[1] * eye[1] + found.normal[2] * eye[2])
+          * (normal[0] * eye[0] + normal[1] * eye[1] + normal[2] * eye[2]);
+        if (agree > 0.96 && facing > 0) found.drop = true;
       }
       return;
     }
-    merged.set(key, { a, b, tris: triIds.slice(), kind, normal, drop: false });
+    merged.set(key, {
+      a,
+      b,
+      tris: triIds.slice(),
+      ignore: new Set(faceIds),
+      kind,
+      normal,
+      drop: false,
+    });
   }
 
   for (const face of model.faces) {
@@ -243,7 +254,7 @@ function boundaryAndSilhouette(model, eye) {
       const b = vertex(entry.position, entry.j);
       const source = model.tris[entry.tris[0]];
       const normal = source ? [source.nx, source.ny, source.nz] : null;
-      addSegment(a, b, entry.tris, silhouette && !boundary ? 'silhouette' : 'edge', normal);
+      addSegment(a, b, entry.tris, silhouette && !boundary ? 'silhouette' : 'edge', normal, face.triIds);
     }
   }
   return [...merged.values()].filter((segment) => !segment.drop);
@@ -275,6 +286,7 @@ function subdivide(segment, maxLen) {
         segment.a[2] + dz * t1,
       ],
       tris: segment.tris,
+      ignore: segment.ignore,
       kind: segment.kind,
     });
   }
@@ -308,7 +320,7 @@ function projectFrame(model, frame) {
   };
   const span = Math.max(extent.w, extent.h, 1);
   const cell = Math.max(3, span / 36);
-  const tol = Math.max(0.15, span * 0.003);
+  const tol = Math.max(0.35, span * 0.006);
   const clip = frame.dashed === false;
   const projected = model.tris.map((tri) => {
     const ax = tri.ax * frame.right[0] + tri.ay * frame.right[1] + tri.az * frame.right[2];
@@ -347,7 +359,8 @@ function projectFrame(model, frame) {
     const list = grid.get(`${Math.floor(x / cell)}:${Math.floor(y / cell)}`);
     if (!list) return false;
     for (const id of list) {
-      if (ignore.includes(id)) continue;
+      if (ignore && ignore.has && ignore.has(id)) continue;
+      if (Array.isArray(ignore) && ignore.includes(id)) continue;
       const t = projected[id];
       const bary = pointInTri(x, y, t.ax, t.ay, t.bx, t.by, t.cx, t.cy);
       if (!bary) continue;
@@ -379,16 +392,17 @@ function projectFrame(model, frame) {
 }
 
 function segmentHidden(piece, hiddenAt) {
-  const ignore = piece.tris || [];
-  for (const t of [0.2, 0.5, 0.8]) {
+  const ignore = piece.ignore || piece.tris || [];
+  let hiddenSamples = 0;
+  for (const t of [0.25, 0.5, 0.75]) {
     const point = [
       piece.a[0] + (piece.b[0] - piece.a[0]) * t,
       piece.a[1] + (piece.b[1] - piece.a[1]) * t,
       piece.a[2] + (piece.b[2] - piece.a[2]) * t,
     ];
-    if (hiddenAt(point, ignore)) return true;
+    if (hiddenAt(point, ignore)) hiddenSamples += 1;
   }
-  return false;
+  return hiddenSamples >= 2;
 }
 
 function pathLength(path) {
