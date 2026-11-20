@@ -115,6 +115,13 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
         const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
         assert.equal(viewSvg.includes('6 1.3 1.1 1.3'), true, `${file} ${id} is missing centre lines`);
       }
+      for (const id of ['front', 'right']) {
+        const view = drawing.views.find((item) => item.id === id);
+        const gap = outlineGap(view.paths);
+        assert.ok(gap <= 0.2, `${id} outline has a ${gap.toFixed(3)} mm gap`);
+        const span = bottomSpan(view.paths);
+        assert.ok(span >= 40, `${id} bottom line is ${span.toFixed(1)} mm`);
+      }
     }
     if (file === 'cad_upload_1.step') {
       const topView = drawing.views.find((view) => view.id === 'top');
@@ -305,6 +312,77 @@ function segmentsCross(a, b) {
   const d4 = side(r, s, q);
   if (d1 === 0 || d2 === 0 || d3 === 0 || d4 === 0) return false;
   return (d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0);
+}
+
+function outlineGap(paths) {
+  const segments = [];
+  for (const path of paths) {
+    for (let i = 1; i < path.points.length; i += 1) segments.push([path.points[i - 1], path.points[i]]);
+  }
+  const seen = new Set();
+  const unique = [];
+  for (const path of paths) {
+    for (const point of path.points) {
+      const key = `${Math.round(point[0] * 10)},${Math.round(point[1] * 10)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(point);
+    }
+  }
+  unique.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const point of unique) {
+    while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper = [];
+  for (let i = unique.length - 1; i >= 0; i -= 1) {
+    const point = unique[i];
+    while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  const hull = lower.concat(upper);
+  let worst = 0;
+  for (let i = 0; i < hull.length; i += 1) {
+    const a = hull[i];
+    const b = hull[(i + 1) % hull.length];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.5));
+    for (let step = 0; step <= steps; step += 1) {
+      const point = [a[0] + (b[0] - a[0]) * step / steps, a[1] + (b[1] - a[1]) * step / steps];
+      let best = Infinity;
+      for (const [c, d] of segments) best = Math.min(best, pointSegmentDistance(point, c, d));
+      if (best > worst) worst = best;
+    }
+  }
+  return worst;
+}
+
+function bottomSpan(paths) {
+  let minY = Infinity;
+  for (const path of paths) {
+    for (const point of path.points) if (point[1] < minY) minY = point[1];
+  }
+  const xs = [];
+  for (const path of paths) {
+    for (let i = 1; i < path.points.length; i += 1) {
+      const a = path.points[i - 1];
+      const b = path.points[i];
+      if (Math.abs(a[1] - minY) < 0.25 && Math.abs(b[1] - minY) < 0.25) xs.push(a[0], b[0]);
+    }
+  }
+  if (!xs.length) return 0;
+  return Math.max(...xs) - Math.min(...xs);
+}
+
+function pointSegmentDistance(point, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const length = dx * dx + dy * dy || 1e-12;
+  const t = Math.max(0, Math.min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length));
+  return Math.hypot(point[0] - (a[0] + dx * t), point[1] - (a[1] + dy * t));
 }
 
 function pointLineDistance(point, line) {

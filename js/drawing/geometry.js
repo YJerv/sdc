@@ -188,7 +188,7 @@ function analyticGenerators(model, frame) {
         a: add(add(fit.origin, mul(fit.axis, minAlong)), offset),
         b: add(add(fit.origin, mul(fit.axis, maxAlong)), offset),
         tris: [],
-        kind: 'silhouette',
+        kind: 'generator',
       });
     }
   }
@@ -210,7 +210,10 @@ function boundaryAndSilhouette(model, eye) {
         const agree = found.normal[0] * normal[0] + found.normal[1] * normal[1] + found.normal[2] * normal[2];
         const facing = (found.normal[0] * eye[0] + found.normal[1] * eye[1] + found.normal[2] * eye[2])
           * (normal[0] * eye[0] + normal[1] * eye[1] + normal[2] * eye[2]);
-        if (agree > 0.96 && facing > 0) found.drop = true;
+        if (facing < 0) {
+          found.kind = 'silhouette';
+          found.drop = false;
+        } else if (agree > 0.96 && facing > 0) found.drop = true;
       }
       return;
     }
@@ -257,7 +260,7 @@ function boundaryAndSilhouette(model, eye) {
       addSegment(a, b, entry.tris, silhouette && !boundary ? 'silhouette' : 'edge', normal, face.triIds);
     }
   }
-  return [...merged.values()].filter((segment) => !segment.drop);
+  return [...merged.values()];
 }
 
 function quantKey(p) {
@@ -291,6 +294,65 @@ function subdivide(segment, maxLen) {
     });
   }
   return pieces;
+}
+
+function onOutline(piece, frame, hull) {
+  if (hull.length < 3) return false;
+  const a = project2(piece.a, frame);
+  const b = project2(piece.b, frame);
+  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  return distToHull(a, hull) < 0.55 && distToHull(b, hull) < 0.55 && distToHull(mid, hull) < 0.55;
+}
+
+function project2(point, frame) {
+  return [
+    point[0] * frame.right[0] + point[1] * frame.right[1] + point[2] * frame.right[2],
+    point[0] * frame.up[0] + point[1] * frame.up[1] + point[2] * frame.up[2],
+  ];
+}
+
+function convexHull(points) {
+  const unique = [];
+  const seen = new Set();
+  for (const point of points) {
+    const key = `${Math.round(point[0] * 20)},${Math.round(point[1] * 20)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(point);
+  }
+  unique.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (unique.length < 3) return unique;
+  const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const point of unique) {
+    while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper = [];
+  for (let i = unique.length - 1; i >= 0; i -= 1) {
+    const point = unique[i];
+    while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function distToHull(point, hull) {
+  let best = Infinity;
+  for (let i = 0; i < hull.length; i += 1) {
+    best = Math.min(best, distToSeg(point, hull[i], hull[(i + 1) % hull.length]));
+  }
+  return best;
+}
+
+function distToSeg(point, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / len));
+  return Math.hypot(point[0] - (a[0] + dx * t), point[1] - (a[1] + dy * t));
 }
 
 function projectFrame(model, frame) {
@@ -353,9 +415,12 @@ function projectFrame(model, frame) {
   }
 
   function hiddenAt(point, ignore) {
+    // Nudge the sample toward the camera so an edge lying on its own
+    // surface is not rejected by that surface.
+    const bias = 1.6;
     const x = dot(point, frame.right);
     const y = dot(point, frame.up);
-    const depth = dot(point, frame.eye);
+    const depth = dot(point, frame.eye) + bias;
     const list = grid.get(`${Math.floor(x / cell)}:${Math.floor(y / cell)}`);
     if (!list) return false;
     for (const id of list) {
@@ -370,13 +435,16 @@ function projectFrame(model, frame) {
     return false;
   }
 
-  const raw = boundaryAndSilhouette(model, frame.eye);
+  const all = boundaryAndSilhouette(model, frame.eye);
+  const raw = all.filter((segment) => !segment.drop);
   for (const segment of analyticGenerators(model, frame)) raw.push(segment);
+  const outline = convexHull(raw.flatMap((segment) => [project2(segment.a, frame), project2(segment.b, frame)]));
   const pieces = [];
   const maxLen = clip ? Math.max(0.7, span / 90) : Math.max(1.5, span / 45);
   for (const segment of raw) {
     for (const piece of subdivide(segment, maxLen)) {
-      const hidden = frame.hidden ? segmentHidden(piece, hiddenAt) : false;
+      let hidden = frame.hidden ? segmentHidden(piece, hiddenAt) : false;
+      if (hidden && piece.kind === 'silhouette' && onOutline(piece, frame, outline)) hidden = false;
       if (hidden && (clip || !frame.hidden)) continue;
       const ax = dot(piece.a, frame.right) - extent.midX;
       const ay = dot(piece.a, frame.up) - extent.midY;
@@ -386,23 +454,20 @@ function projectFrame(model, frame) {
       pieces.push({ a: [ax, ay], b: [bx, by], hidden, kind: piece.kind });
     }
   }
-  let paths = chainPaths(pieces).filter((path) => pathLength(path) >= 0.9);
+  let paths = chainPaths(pieces).filter((path) => pathLength(path) >= 0.9 && !strayLoop(path));
+  paths = dropCoveredTicks(paths);
   if (!frame.hidden) paths = paths.filter((path) => !path.hidden);
   return { extent, paths, span };
 }
 
 function segmentHidden(piece, hiddenAt) {
   const ignore = piece.ignore || piece.tris || [];
-  let hiddenSamples = 0;
-  for (const t of [0.25, 0.5, 0.75]) {
-    const point = [
-      piece.a[0] + (piece.b[0] - piece.a[0]) * t,
-      piece.a[1] + (piece.b[1] - piece.a[1]) * t,
-      piece.a[2] + (piece.b[2] - piece.a[2]) * t,
-    ];
-    if (hiddenAt(point, ignore)) hiddenSamples += 1;
-  }
-  return hiddenSamples >= 2;
+  const point = [
+    (piece.a[0] + piece.b[0]) / 2,
+    (piece.a[1] + piece.b[1]) / 2,
+    (piece.a[2] + piece.b[2]) / 2,
+  ];
+  return hiddenAt(point, ignore);
 }
 
 function pathLength(path) {
@@ -414,6 +479,29 @@ function pathLength(path) {
     );
   }
   return total;
+}
+
+function strayLoop(path) {
+  const first = path.points[0];
+  const last = path.points[path.points.length - 1];
+  if (Math.hypot(first[0] - last[0], first[1] - last[1]) > 0.25) return false;
+  return pathLength(path) < 2.2;
+}
+
+function dropCoveredTicks(paths) {
+  return paths.filter((path) => {
+    if (pathLength(path) >= 2.4) return true;
+    const others = paths.filter((other) => other !== path && pathLength(other) >= 2.4);
+    return !path.points.every((point) => others.some((other) => pointNearPath(point, other) < 0.4));
+  });
+}
+
+function pointNearPath(point, path) {
+  let best = Infinity;
+  for (let i = 1; i < path.points.length; i += 1) {
+    best = Math.min(best, distToSeg(point, path.points[i - 1], path.points[i]));
+  }
+  return best;
 }
 
 function pointInTri(px, py, ax, ay, bx, by, cx, cy) {
@@ -484,16 +572,38 @@ function walkChains(pieces) {
     const points = [];
     let current = startNode;
     let previous = cameFrom;
-    while (current.edges.length === 2) {
-      const next = current.edges.find((item) => item !== previous && !item.used);
-      if (!next) break;
-      next.used = true;
-      const other = next.a === current ? next.b : next.a;
+    while (true) {
+      const arrived = previous.a === current ? previous.b : previous.a;
+      const travel = unit2(current.p[0] - arrived.p[0], current.p[1] - arrived.p[1]);
+      const open = current.edges.filter((item) => item !== previous && !item.used);
+      let best = null;
+      if (open.length === 1) {
+        best = open[0];
+      } else {
+        let bestAlign = 0.9;
+        for (const item of open) {
+          const other = item.a === current ? item.b : item.a;
+          const onward = unit2(other.p[0] - current.p[0], other.p[1] - current.p[1]);
+          const align = travel[0] * onward[0] + travel[1] * onward[1];
+          if (align > bestAlign) {
+            bestAlign = align;
+            best = item;
+          }
+        }
+      }
+      if (!best) break;
+      best.used = true;
+      const other = best.a === current ? best.b : best.a;
       points.push(other.p);
-      previous = next;
+      previous = best;
       current = other;
     }
     return points;
+  }
+
+  function unit2(x, y) {
+    const len = Math.hypot(x, y) || 1;
+    return [x / len, y / len];
   }
 }
 
