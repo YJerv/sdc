@@ -254,17 +254,6 @@ function edgeFromPath(path, viewId, place, scale) {
   };
 }
 
-function titleBoxes(layout) {
-  const names = { front: 'FRONT', top: 'TOP', right: 'RIGHT SIDE', iso: 'ISOMETRIC' };
-  return Object.entries(names).map(([id, name]) => {
-    const rect = viewRect(layout.place[id]);
-    const size = 2.6;
-    const w = textWidth(name, size);
-    const h = size * 1.35;
-    return { x: rect.left - 0.4, y: rect.top - 1.6 - h, w: w + 0.8, h, text: name };
-  });
-}
-
 function sheetCircle(feature, view, place, scale) {
   if (!feature || !view) return null;
   const align = Math.abs(dot3(feature.axis, view.frame.eye));
@@ -421,12 +410,12 @@ function buildDimensions(model, views, layout) {
   const boxes = [];
   const dims = [];
   const front = views.front;
-  const side = views.right;
+  const top = views.top;
   const width = front.extent.w;
   const height = front.extent.h;
-  const depth = side.extent.w;
+  const depth = views.right.extent.w;
   const frontRect = viewRect(place.front);
-  const sideRect = viewRect(place.right);
+  const topRect = viewRect(place.top);
 
   function addDim(dim) {
     let box = dim.box;
@@ -450,6 +439,7 @@ function buildDimensions(model, views, layout) {
     value: width,
     text: widthText,
     orient: 'h',
+    view: 'front',
     x1: frontRect.left,
     x2: frontRect.right,
     y: frontRect.bottom + 8,
@@ -462,6 +452,7 @@ function buildDimensions(model, views, layout) {
     value: height,
     text: heightText,
     orient: 'v',
+    view: 'front',
     y1: frontRect.top,
     y2: frontRect.bottom,
     x: frontRect.left - 9,
@@ -469,23 +460,24 @@ function buildDimensions(model, views, layout) {
     geom: frontRect.left,
   });
   if (!round) {
-    const depthText = diameterText(depth, side.frame.right, model.circles.all);
+    const depthText = diameterText(depth, top.frame.up, model.circles.all);
     addDim({
       kind: 'overall',
       axis: 'depth',
       value: depth,
       text: depthText,
-      orient: 'h',
-      x1: sideRect.left,
-      x2: sideRect.right,
-      y: sideRect.bottom + 8,
-      box: makeBox(depthText, (sideRect.left + sideRect.right) / 2, sideRect.bottom + 8),
-      geom: sideRect.bottom,
+      orient: 'v',
+      view: 'top',
+      y1: topRect.top,
+      y2: topRect.bottom,
+      x: topRect.left - 9,
+      box: makeBox(depthText, topRect.left - 9 - textWidth(depthText) / 2 - 1.2, (topRect.top + topRect.bottom) / 2),
+      geom: topRect.left,
     });
   }
 
   const featureSet = collectFeatures(model);
-  const titles = titleBoxes(layout);
+  const titles = [];
   const leaders = [];
   const centreOnSheet = ['front', 'top', 'right'].flatMap((id) => sheetCentreLines(model, views[id], place[id], scale));
   for (const group of featureSet.diameters) {
@@ -494,7 +486,8 @@ function buildDimensions(model, views, layout) {
     const callout = group.features.length > 1
       ? `${group.features.length} × Ø${formatDim(group.size)}`
       : `Ø${formatDim(group.size)}`;
-    const host = viewForCircle({ normal: sample.axis, center: sample.center }, views) || front;
+    const host = viewForCircle({ normal: sample.axis, center: sample.center }, views, { endView: false });
+    if (!host) continue;
     const rings = featureSet.diameters
       .filter((other) => other !== group)
       .map((other) => sheetCircle(other.features[0], host, place, scale))
@@ -529,7 +522,7 @@ function buildDimensions(model, views, layout) {
     const holes = group.features.filter((feature) => feature.hole);
     const positioned = holes.slice(0, 8);
     for (const hole of positioned) {
-      const view = viewForCircle({ normal: hole.axis, center: hole.center }, views);
+      const view = viewForCircle({ normal: hole.axis, center: hole.center }, views, { endView: false });
       if (!view) continue;
       const rect = viewRect(place[view.frame.id]);
       const centre = snapCentre(hole.center, envelopeCentre(model), hole.axis);
@@ -537,12 +530,16 @@ function buildDimensions(model, views, layout) {
       const hy = dot3(centre, view.frame.up);
       const fromLeft = snapLength(hx - view.extent.minX);
       const fromBottom = snapLength(hy - view.extent.minY);
-      if (fromLeft <= 0.2 && fromBottom <= 0.2) continue;
+      const midX = (view.extent.minX + view.extent.maxX) / 2;
+      const midY = (view.extent.minY + view.extent.maxY) / 2;
+      const fromCentreX = Math.abs(hx - midX) <= 0.4;
+      const fromCentreY = Math.abs(hy - midY) <= 0.4;
+      if ((fromLeft <= 0.2 || fromCentreX) && (fromBottom <= 0.2 || fromCentreY)) continue;
       const [px] = toSheet(hx - view.extent.midX, 0, place[view.frame.id], scale);
       const [, py] = toSheet(0, hy - view.extent.midY, place[view.frame.id], scale);
       const xText = formatDim(fromLeft);
       const yText = formatDim(fromBottom);
-      if (fromLeft > 0.2) {
+      if (fromLeft > 0.2 && !fromCentreX) {
         const boxX = makeBox(xText, (rect.left + px) / 2, rect.top - 8);
         if (!hitsAny(boxX, boxes)) {
           boxes.push(boxX);
@@ -559,7 +556,7 @@ function buildDimensions(model, views, layout) {
           });
         }
       }
-      if (fromBottom > 0.2) {
+      if (fromBottom > 0.2 && !fromCentreY) {
         const boxY = makeBox(yText, rect.left - 9 - textWidth(yText) / 2, (rect.bottom + py) / 2);
         if (!hitsAny(boxY, boxes)) {
           boxes.push(boxY);
@@ -586,7 +583,7 @@ function buildDimensions(model, views, layout) {
       : `R${formatDim(group.size)}`;
     const host = sample.profile
       ? profileView(sample.revolution, views)
-      : (viewForCircle({ normal: sample.axis, center: sample.center }, views) || front);
+      : (viewForCircle({ normal: sample.axis, center: sample.center }, views, { endView: false }) || front);
     const centre = sample.profile
       ? [
         sample.axial[0] + host.frame.right[0] * sample.spine,
@@ -694,7 +691,7 @@ function envelopeCentre(model) {
 function profileView(axis, views) {
   let best = views.front;
   let bestAlign = 1;
-  for (const view of [views.front, views.right, views.top]) {
+  for (const view of [views.front, views.top]) {
     const align = Math.abs(dot3(axis, view.frame.eye));
     if (align < bestAlign) {
       bestAlign = align;
@@ -704,10 +701,13 @@ function profileView(axis, views) {
   return best;
 }
 
-function viewForCircle(circle, views) {
+function viewForCircle(circle, views, options = {}) {
   let best = null;
   let bestAlign = 0.75;
-  for (const view of [views.front, views.top, views.right]) {
+  const candidates = options.endView === false
+    ? [views.front, views.top]
+    : [views.front, views.top, views.right];
+  for (const view of candidates) {
     const align = Math.abs(dot3(circle.normal, view.frame.eye));
     if (align > bestAlign) {
       bestAlign = align;
@@ -880,7 +880,6 @@ function renderSvg({ layout, views, dimensions, scaleLabel, title, date, logoHre
   parts.push(`<rect width="100%" height="100%" fill="#ffffff"/>`);
   parts.push(`<rect x="${MARGIN}" y="${MARGIN}" width="${SHEET.width - MARGIN * 2}" height="${SHEET.height - MARGIN * 2}" fill="none" stroke="#111" stroke-width="0.7"/>`);
   parts.push(`<rect x="${MARGIN + 2}" y="${MARGIN + 2}" width="${SHEET.width - (MARGIN + 2) * 2}" height="${SHEET.height - (MARGIN + 2) * 2}" fill="none" stroke="#111" stroke-width="0.25"/>`);
-  const names = { front: 'FRONT', top: 'TOP', right: 'RIGHT SIDE', iso: 'ISOMETRIC' };
   for (const id of ['front', 'top', 'right', 'iso']) {
     const view = views[id];
     const place = layout.place[id];
@@ -893,8 +892,6 @@ function renderSvg({ layout, views, dimensions, scaleLabel, title, date, logoHre
       const [x2, y2] = toSheet(b[0], b[1], place, scale);
       parts.push(`<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" fill="none" stroke="#222" stroke-width="0.2" stroke-dasharray="6 1.3 1.1 1.3"/>`);
     }
-    const rect = viewRect(place);
-    parts.push(`<text x="${rect.left.toFixed(2)}" y="${(rect.top - 1.5).toFixed(2)}" font-family="Helvetica, Arial, sans-serif" font-size="2.6" fill="#5c564c">${names[id]}</text>`);
     parts.push(`</g>`);
   }
   parts.push(`<g id="dimensions">`);

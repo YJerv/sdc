@@ -110,6 +110,10 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
       assert.equal(viewSvg.includes('2.4 1.15'), false, `${file} ${id} draws a hidden line`);
     }
+    for (const label of ['FRONT', 'TOP', 'RIGHT SIDE', 'ISOMETRIC']) {
+      assert.equal(drawing.svg.includes(`>${label}<`), false, `${file} still labels the ${label} view`);
+    }
+    assert.equal(drawing.dimensions.some((dim) => dim.view === 'right' || dim.feature?.view === 'right'), false, `${file} puts an automatic dimension on the end view`);
     if (file === 'cone_50x12_v2.step') {
       for (const id of ['front', 'top', 'right']) {
         const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
@@ -178,12 +182,12 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       assert.equal(/Ø46|Ø48/.test(text), false, text);
       const rim = drawing.dimensions.find((dim) => dim.kind === 'radius' && dim.text.includes('R2'));
       assert.ok(rim, `cone radii ${drawing.dimensions.filter((dim) => dim.kind === 'radius').map((dim) => dim.text).join(', ')}`);
-      assert.ok(rim.feature.view === 'front' || rim.feature.view === 'right', rim.feature.view);
+      assert.equal(rim.feature.view, 'front');
       assert.ok(rim.leaderLine);
       assert.match(text, /(^|\s)12(\s|$)/);
       assert.match(drawing.svg, /data-leader="1"/);
       const positions = drawing.dimensions.filter((dim) => dim.kind === 'position').map((dim) => dim.text);
-      assert.ok(positions.includes('25'), `cone positions ${positions.join(', ')}`);
+      assert.equal(positions.includes('25'), false, `centre-to-edge dimensions ${positions.join(', ')}`);
       assert.equal(positions.some((text) => text === '24.9' || text === '24.8'), false);
       const one = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '1:1' });
       const two = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '2:1' });
@@ -253,7 +257,11 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
         `${file} missing radius ${label}`,
       );
     }
+    const frames = viewFrames();
     for (const group of features.diameters) {
+      const sample = group.features[0];
+      const align = (frame) => Math.abs(sample.axis[0] * frame.eye[0] + sample.axis[1] * frame.eye[1] + sample.axis[2] * frame.eye[2]);
+      if (align(frames.right) > 0.75 && align(frames.front) <= 0.75 && align(frames.top) <= 0.75) continue;
       const label = `Ø${Number.isInteger(group.size) ? group.size : group.size.toFixed(1)}`;
       const present = drawing.dimensions.some((dim) => dim.kind === 'diameter' && dim.text.includes(label.replace(/\.0$/, '')));
       assert.equal(present, true, `${file} missing diameter ${label}`);
