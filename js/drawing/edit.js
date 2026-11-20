@@ -146,19 +146,23 @@ export function dimensionForPair(a, b, existing = []) {
   if (a.type === 'circle' && b.type === 'circle') {
     return axisDistance(a.cx, a.cy, b.cx, b.cy, scale, boxes);
   }
-  if (a.type === 'edge' && b.type === 'edge' && a.orient === b.orient) {
-    if (a.orient === 'h') {
-      const span = Math.abs(a.cy - b.cy) / scale;
+  if (a.type === 'edge' && b.type === 'edge') {
+    if (a.orient && a.orient === b.orient) {
+      if (a.orient === 'h') {
+        const span = Math.abs(a.cy - b.cy) / scale;
+        if (span < 0.3) return null;
+        const y1 = Math.min(a.cy, b.cy);
+        const y2 = Math.max(a.cy, b.cy);
+        const x = (a.cx + b.cx) / 2;
+        return linearDim('v', y1, y2, x, span, boxes);
+      }
+      const span = Math.abs(a.cx - b.cx) / scale;
       if (span < 0.3) return null;
-      const x1 = Math.min(a.x1, a.x2, b.x1, b.x2);
-      const x2 = Math.max(a.x1, a.x2, b.x1, b.x2);
-      return linearDim('h', x1, x2, Math.max(a.cy, b.cy) + 8, span, boxes);
+      const x1 = Math.min(a.cx, b.cx);
+      const x2 = Math.max(a.cx, b.cx);
+      return linearDim('h', x1, x2, (a.cy + b.cy) / 2, span, boxes);
     }
-    const span = Math.abs(a.cx - b.cx) / scale;
-    if (span < 0.3) return null;
-    const y1 = Math.min(a.y1, a.y2, b.y1, b.y2);
-    const y2 = Math.max(a.y1, a.y2, b.y1, b.y2);
-    return linearDim('v', y1, y2, Math.min(a.cx, b.cx) - 10, span, boxes);
+    return axisDistance(a.cx, a.cy, b.cx, b.cy, scale, boxes);
   }
   const circle = a.type === 'circle' ? a : b.type === 'circle' ? b : null;
   const edge = a.type === 'edge' ? a : b.type === 'edge' ? b : null;

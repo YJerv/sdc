@@ -37,13 +37,7 @@ test('one feature and two features add dimensions clear of the others', { timeou
   assert.match(one.text, /Ø20/);
   assert.ok(one.leaderLine);
   assert.equal(drawing.dimensions.some((dim) => overlaps(dim.box, one.box)), false);
-  const edges = drawing.entities.filter((entity) => entity.type === 'edge' && entity.view === 'front' && entity.orient === 'h');
-  assert.ok(edges.length >= 2, `front edges ${edges.length}`);
-  const pair = [...edges].sort((a, b) => a.cy - b.cy);
-  const two = dimensionForPair(pair[0], pair[pair.length - 1], drawing.dimensions);
-  assert.ok(two, 'two edges');
-  assert.ok(two.value > 1);
-  assert.equal(dimensionForPair(hole, { ...edges[0], view: 'right' }, drawing.dimensions), null);
+  assert.equal(dimensionForPair(hole, { ...hole, id: 'other-view', view: 'front' }, drawing.dimensions), null);
   const editor = createSheetEditor(drawing);
   const added = editor.add(one);
   assert.match(editor.svg(), new RegExp(`data-dim-id="${added.id}"`));
@@ -67,6 +61,29 @@ test('undo restores add and delete, and export uses the edited sheet', { timeout
   assert.equal(editor.undo(), true);
   assert.match(exportSheet(editor), /Ø20/);
   assert.equal(editor.undo(), false);
+});
+
+test('parallel edges are dimensioned by the perpendicular distance', () => {
+  const lower = {
+    id: 'lower', type: 'edge', view: 'front', orient: 'h',
+    x1: 0, x2: 50, y1: 10, y2: 10, cx: 25, cy: 10, size: 50, scale: 2,
+  };
+  const upper = {
+    id: 'upper', type: 'edge', view: 'front', orient: 'h',
+    x1: 4, x2: 36, y1: 34, y2: 34, cx: 20, cy: 34, size: 16, scale: 2,
+  };
+  const dim = dimensionForPair(lower, upper, []);
+  assert.equal(dim.orient, 'v');
+  assert.equal(dim.value, 12);
+  assert.notEqual(dim.value, lower.size);
+  assert.notEqual(dim.value, upper.size);
+  const upright = {
+    id: 'upright', type: 'edge', view: 'front', orient: 'v',
+    x1: 80, x2: 80, y1: 0, y2: 40, cx: 80, cy: 20, size: 40, scale: 2,
+  };
+  const across = dimensionForPair(lower, upright, []);
+  assert.ok(across);
+  assert.equal(across.value, 27.5);
 });
 
 function overlaps(a, b) {
