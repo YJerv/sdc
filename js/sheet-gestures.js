@@ -9,6 +9,20 @@ export function zoomBy(zoom, factor) {
   return clampZoom(zoom * factor);
 }
 
+/**
+ * Change zoom while keeping the sheet point under `anchor` fixed on screen.
+ * `anchor` is in the same pixel space as `pan` (the viewport).
+ */
+export function zoomAbout(state, nextZoom, anchorX, anchorY) {
+  const zoom = clampZoom(nextZoom);
+  const ratio = zoom / (state.zoom || 1);
+  return {
+    zoom,
+    panX: anchorX - (anchorX - state.panX) * ratio,
+    panY: anchorY - (anchorY - state.panY) * ratio,
+  };
+}
+
 export function panBy(pan, dx, dy) {
   return { x: pan.x + dx, y: pan.y + dy };
 }

@@ -10,7 +10,7 @@ import { createDrawing } from './drawing/create.js';
 import { SHEET_SCALES } from './drawing/sheet.js';
 import { readGridVisible, writeGridVisible } from './settings.js';
 import { exportDrawingPdf, exportDrawingPng } from './export-client.js';
-import { panBy, zoomBy, hitSlopMm } from './sheet-gestures.js';
+import { panBy, zoomAbout, zoomBy, hitSlopMm } from './sheet-gestures.js';
 import { createSheetEditor, dimensionForOne, dimensionForPair, pickDimension, pickEntity } from './drawing/edit.js';
 
 const fileInput = document.querySelector('#file-input');
@@ -628,10 +628,23 @@ document.querySelector('#edit-fit').addEventListener('click', () => {
   editState.panY = 0;
   applyEditTransform();
 });
+function anchorIn(viewport, clientX, clientY) {
+  const rect = viewport.getBoundingClientRect();
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+function zoomEditAt(factor, anchorX, anchorY) {
+  const next = zoomAbout(editState, zoomBy(editState.zoom, factor), anchorX, anchorY);
+  editState.zoom = next.zoom;
+  editState.panX = next.panX;
+  editState.panY = next.panY;
+  applyEditTransform();
+}
+
 editViewport.addEventListener('wheel', (event) => {
   event.preventDefault();
-  editState.zoom = zoomBy(editState.zoom, event.deltaY < 0 ? 1.1 : 0.9);
-  applyEditTransform();
+  const anchor = anchorIn(editViewport, event.clientX, event.clientY);
+  zoomEditAt(event.deltaY < 0 ? 1.1 : 0.9, anchor.x, anchor.y);
 }, { passive: false });
 const editPointers = new Map();
 let editDrag = null;
@@ -647,10 +660,17 @@ editViewport.addEventListener('pointermove', (event) => {
   if (editPointers.size === 2) {
     const [a, b] = [...editPointers.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
-    if (editDrag.pinch) editState.zoom = zoomBy(editDrag.zoom, dist / editDrag.pinch);
-    else {
+    if (editDrag.pinch) {
+      const mid = anchorIn(editViewport, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      const next = zoomAbout(editDrag, zoomBy(editDrag.zoom, dist / editDrag.pinch), mid.x, mid.y);
+      editState.zoom = next.zoom;
+      editState.panX = next.panX;
+      editState.panY = next.panY;
+    } else {
       editDrag.pinch = dist;
       editDrag.zoom = editState.zoom;
+      editDrag.panX = editState.panX;
+      editDrag.panY = editState.panY;
     }
     applyEditTransform();
     return;
@@ -760,10 +780,23 @@ document.querySelector('#sheet-fit').addEventListener('click', () => {
   applySheetTransform();
 });
 
+function zoomSheetAt(factor, anchorX, anchorY) {
+  const next = zoomAbout(
+    { panX: sheetPanX, panY: sheetPanY, zoom: sheetZoom },
+    zoomBy(sheetZoom, factor),
+    anchorX,
+    anchorY,
+  );
+  sheetZoom = next.zoom;
+  sheetPanX = next.panX;
+  sheetPanY = next.panY;
+  applySheetTransform();
+}
+
 sheetViewport.addEventListener('wheel', (event) => {
   event.preventDefault();
-  sheetZoom = Math.min(6, Math.max(0.3, sheetZoom * (event.deltaY < 0 ? 1.1 : 0.9)));
-  applySheetTransform();
+  const anchor = anchorIn(sheetViewport, event.clientX, event.clientY);
+  zoomSheetAt(event.deltaY < 0 ? 1.1 : 0.9, anchor.x, anchor.y);
 }, { passive: false });
 
 let drag = null;
@@ -780,11 +813,17 @@ sheetViewport.addEventListener('pointermove', (event) => {
     const [a, b] = [...pointers.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
     if (drag.pinch) {
-      sheetZoom = Math.min(6, Math.max(0.3, drag.zoom * (dist / drag.pinch)));
+      const mid = anchorIn(sheetViewport, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      const next = zoomAbout(drag, zoomBy(drag.zoom, dist / drag.pinch), mid.x, mid.y);
+      sheetZoom = next.zoom;
+      sheetPanX = next.panX;
+      sheetPanY = next.panY;
       applySheetTransform();
     } else {
       drag.pinch = dist;
       drag.zoom = sheetZoom;
+      drag.panX = sheetPanX;
+      drag.panY = sheetPanY;
     }
     return;
   }
