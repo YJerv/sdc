@@ -103,6 +103,10 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
         assert.equal(boxesOverlap(boxes[i], boxes[j]), false, `${file} dimensions overlap: ${drawing.dimensions[i].text} and ${drawing.dimensions[j].text}`);
       }
     }
+    const iso = drawing.views.find((view) => view.id === 'iso');
+    assert.equal(iso.paths.some((path) => path.hidden), false, `${file} isometric has a hidden path`);
+    const isoSvg = drawing.svg.split('id="view-iso"')[1].split('</g>')[0];
+    assert.equal(isoSvg.includes('stroke-dasharray'), false, `${file} isometric draws a dashed line`);
     if (file === 'cad_upload_1.step') {
       const topView = drawing.views.find((view) => view.id === 'top');
       const iso = drawing.views.find((view) => view.id === 'iso');

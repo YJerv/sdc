@@ -371,7 +371,8 @@ function projectFrame(model, frame) {
       pieces.push({ a: [ax, ay], b: [bx, by], hidden, kind: piece.kind });
     }
   }
-  const paths = chainPaths(pieces).filter((path) => pathLength(path) >= 0.9);
+  let paths = chainPaths(pieces).filter((path) => pathLength(path) >= 0.9);
+  if (!frame.hidden) paths = paths.filter((path) => !path.hidden);
   return { extent, paths, span };
 }
 
