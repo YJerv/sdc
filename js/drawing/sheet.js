@@ -50,20 +50,25 @@ function esc(value) {
     .replace(/"/g, '&quot;');
 }
 
-function chooseScale(modelViews) {
-  const sizes = modelViews;
-  const scales = [
-    { value: 5, label: '5:1' },
-    { value: 2, label: '2:1' },
-    { value: 1, label: '1:1' },
-    { value: 0.5, label: '1:2' },
-    { value: 0.2, label: '1:5' },
-    { value: 0.1, label: '1:10' },
-  ];
-  for (const scale of scales) {
-    if (layoutFor(sizes, scale.value).fits) return scale;
+export const SHEET_SCALES = [
+  { value: 0.1, label: '1:10' },
+  { value: 0.2, label: '1:5' },
+  { value: 0.5, label: '1:2' },
+  { value: 1, label: '1:1' },
+  { value: 2, label: '2:1' },
+  { value: 5, label: '5:1' },
+];
+
+function chooseScale(modelViews, forced) {
+  const requested = SHEET_SCALES.find((scale) => scale.label === forced || scale.value === forced);
+  if (requested) {
+    return { ...requested, tight: !layoutFor(modelViews, requested.value).fits };
   }
-  return { ...scales[scales.length - 1], tight: true };
+  const largestFirst = [...SHEET_SCALES].reverse();
+  for (const scale of largestFirst) {
+    if (layoutFor(modelViews, scale.value).fits) return scale;
+  }
+  return { ...SHEET_SCALES[0], tight: true };
 }
 
 function layoutFor(views, scale) {
@@ -808,7 +813,7 @@ function renderPaths(view, place, scale) {
 }
 
 export function composeSheet({ model, views, options = {} }) {
-  const scaleInfo = chooseScale(views);
+  const scaleInfo = chooseScale(views, options.scale);
   const layout = layoutFor(views, scaleInfo.value);
   layout.scale = scaleInfo.value;
   const warnings = [...model.warnings];

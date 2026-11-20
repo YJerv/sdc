@@ -355,6 +355,17 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   padding-top: env(safe-area-inset-top);
 }
 
+.scale-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.scale-control input[type="range"] { width: 7rem; }
+
 .sheet-bar {
   display: flex;
   flex-wrap: wrap;

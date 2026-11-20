@@ -8,7 +8,7 @@ import { createDrawing } from '../js/drawing/create.js';
 import { prepareModel } from '../js/drawing/geometry.js';
 import { collectFeatures, withoutNearDuplicates } from '../js/drawing/features.js';
 import { formatDim, viewFrames } from '../js/drawing/geometry.js';
-import { formatSheetDate } from '../js/drawing/sheet.js';
+import { formatSheetDate, SHEET_SCALES } from '../js/drawing/sheet.js';
 import { JET_LOGO } from '../js/drawing/jet-logo.js';
 import { pdfFromJpeg } from '../js/pdf-image.js';
 import { canExport, exportPolicy } from '../js/export-policy.js';
@@ -33,6 +33,7 @@ test('sheet helpers', () => {
   assert.equal(JET_LOGO, `data:image/png;base64,${logoFile}`);
   const lateUtc = new Date('2026-11-20T03:30:00Z');
   assert.equal(formatSheetDate(lateUtc, 'Etc/GMT+4'), '19 Nov 2026');
+  assert.deepEqual(SHEET_SCALES.map((scale) => scale.label), ['1:10', '1:5', '1:2', '1:1', '2:1', '5:1']);
   assert.equal(formatSheetDate(lateUtc, 'UTC'), '20 Nov 2026');
   const kept = withoutNearDuplicates(
     [{ size: 48.3, features: [{ hole: false }] }, { size: 46, features: [{ hole: false }] }, { size: 20, features: [{ hole: true }] }],
@@ -169,6 +170,14 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       const positions = drawing.dimensions.filter((dim) => dim.kind === 'position').map((dim) => dim.text);
       assert.ok(positions.includes('25'), `cone positions ${positions.join(', ')}`);
       assert.equal(positions.some((text) => text === '24.9' || text === '24.8'), false);
+      const bigger = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '5:1' });
+      const smaller = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '1:2' });
+      assert.equal(bigger.scaleLabel, '5:1');
+      assert.equal(smaller.scaleLabel, '1:2');
+      assert.ok(bigger.layout.front.w > drawing.layout.front.w);
+      assert.ok(smaller.layout.front.w < drawing.layout.front.w);
+      assert.match(bigger.svg, />5:1</);
+      assert.match(smaller.svg, />1:2</);
     }
     const features = collectFeatures(prepareModel(result));
     for (const group of features.radii) {

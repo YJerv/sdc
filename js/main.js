@@ -7,6 +7,7 @@ import {
 } from './step-model.js';
 import { createViewer } from './viewer.js';
 import { createDrawing } from './drawing/create.js';
+import { SHEET_SCALES } from './drawing/sheet.js';
 import { readGridVisible, writeGridVisible } from './settings.js';
 import { exportDrawingPdf, exportDrawingPng } from './export-client.js';
 import { panBy, zoomBy, hitSlopMm } from './sheet-gestures.js';
@@ -67,6 +68,7 @@ let currentName = '';
 let quarterTurns = 0;
 let currentSvg = '';
 let currentDrawing = null;
+let drawingScale = null;
 let sheetZoom = 1;
 let sheetPanX = 0;
 let sheetPanY = 0;
@@ -146,6 +148,7 @@ function resetDetails() {
   showTopArm(false);
   currentResult = null;
   currentName = '';
+  drawingScale = null;
   createButton.disabled = true;
   drawSetup.hidden = true;
 }
@@ -380,9 +383,57 @@ function applySheetTransform() {
   sheetStage.style.transform = `translate(${sheetPanX}px, ${sheetPanY}px) scale(${sheetZoom})`;
 }
 
+function scaleIndex(label) {
+  const index = SHEET_SCALES.findIndex((scale) => scale.label === label);
+  return index < 0 ? 3 : index;
+}
+
+function showScale(label) {
+  const index = scaleIndex(label);
+  for (const id of ['sheet-scale', 'edit-scale']) {
+    const input = document.querySelector(`#${id}`);
+    if (input) input.value = String(index);
+  }
+  for (const id of ['sheet-scale-label', 'edit-scale-label']) {
+    const node = document.querySelector(`#${id}`);
+    if (node) node.textContent = label;
+  }
+}
+
+function redrawAtScale(index) {
+  if (!currentResult) return;
+  const scale = SHEET_SCALES[Math.max(0, Math.min(SHEET_SCALES.length - 1, index))];
+  drawingScale = scale.label;
+  setBusy(true, 'Updating the scale…');
+  const result = currentResult;
+  const title = currentName || 'Untitled';
+  const editing = !sheetEdit.hidden;
+  requestAnimationFrame(() => {
+    try {
+      const drawing = createDrawing(result, {
+        title,
+        basis: viewer.getBasis(),
+        scale: drawingScale,
+      });
+      showSheet(drawing);
+      if (editing) openEdit();
+      setBusy(false);
+      setViewsEnabled(true);
+    } catch (error) {
+      showError('The drawing could not be scaled.');
+    }
+  });
+}
+
+function stepScale(delta) {
+  const label = currentDrawing?.scaleLabel || '1:1';
+  redrawAtScale(scaleIndex(drawingScale || label) + delta);
+}
+
 function showSheet(drawing) {
   currentDrawing = drawing;
   currentSvg = drawing.svg;
+  showScale(drawing.scaleLabel);
   sheetZoom = 1;
   sheetPanX = 0;
   sheetPanY = 0;
@@ -402,7 +453,7 @@ createButton.addEventListener('click', () => {
   const turn = quarterTurns;
   requestAnimationFrame(() => {
     try {
-      const drawing = createDrawing(result, { title, basis: viewer.getBasis() });
+      const drawing = createDrawing(result, { title, basis: viewer.getBasis(), scale: drawingScale });
       showSheet(drawing);
       setBusy(false);
       setViewsEnabled(true);
@@ -549,6 +600,16 @@ function openEdit() {
 }
 
 document.querySelector('#edit-drawing').addEventListener('click', openEdit);
+for (const [down, up, input] of [
+  ['#sheet-scale-down', '#sheet-scale-up', '#sheet-scale'],
+  ['#edit-scale-down', '#edit-scale-up', '#edit-scale'],
+]) {
+  document.querySelector(down).addEventListener('click', () => stepScale(-1));
+  document.querySelector(up).addEventListener('click', () => stepScale(1));
+  document.querySelector(input).addEventListener('input', (event) => {
+    redrawAtScale(Number(event.target.value));
+  });
+}
 document.querySelector('#edit-back').addEventListener('click', () => {
   sheetEdit.hidden = true;
   sheetPreview.hidden = false;
