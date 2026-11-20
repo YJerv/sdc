@@ -17,6 +17,7 @@ const ASSETS = [
   './js/drawing/sheet.js',
   './js/drawing/jet-logo.js',
   './js/drawing/create.js',
+  './js/drawing/edit.js',
   './js/export-policy.js',
   './js/export-client.js',
   './js/pdf-image.js',

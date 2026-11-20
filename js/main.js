@@ -9,7 +9,8 @@ import { createViewer } from './viewer.js';
 import { createDrawing } from './drawing/create.js';
 import { readGridVisible, writeGridVisible } from './settings.js';
 import { exportDrawingPdf, exportDrawingPng } from './export-client.js';
-import { panBy, zoomBy } from './sheet-gestures.js';
+import { panBy, zoomBy, hitSlopMm } from './sheet-gestures.js';
+import { createSheetEditor, pickDimension } from './drawing/edit.js';
 
 const fileInput = document.querySelector('#file-input');
 const stage = document.querySelector('#stage');
@@ -65,6 +66,7 @@ let currentResult = null;
 let currentName = '';
 let quarterTurns = 0;
 let currentSvg = '';
+let currentDrawing = null;
 let sheetZoom = 1;
 let sheetPanX = 0;
 let sheetPanY = 0;
@@ -379,6 +381,7 @@ function applySheetTransform() {
 }
 
 function showSheet(drawing) {
+  currentDrawing = drawing;
   currentSvg = drawing.svg;
   sheetZoom = 1;
   sheetPanX = 0;
@@ -417,13 +420,57 @@ const sheetEdit = document.querySelector('#sheet-edit');
 const editStage = document.querySelector('#edit-stage');
 const editViewport = document.querySelector('#edit-viewport');
 const editState = { zoom: 1, panX: 0, panY: 0 };
+let sheetEditor = null;
+let deleteArmed = false;
+let pendingDelete = null;
+const editDelete = document.querySelector('#edit-delete');
+const editConfirm = document.querySelector('#edit-confirm');
+
+function refreshEditSheet() {
+  editStage.innerHTML = sheetEditor ? sheetEditor.svg() : currentSvg;
+  currentSvg = editStage.innerHTML;
+  if (pendingDelete) {
+    const node = editStage.querySelector(`[data-dim-id="${pendingDelete}"]`);
+    if (node) node.setAttribute('data-selected', 'true');
+  }
+}
+
+function setDeleteArmed(armed) {
+  deleteArmed = armed;
+  editDelete.setAttribute('aria-pressed', armed ? 'true' : 'false');
+  editNote(armed ? 'Tap a dimension to delete it.' : 'Pinch or scroll to zoom, and drag to pan. Zoom in to pick a small dimension.');
+  if (!armed) {
+    pendingDelete = null;
+    editConfirm.hidden = true;
+    refreshEditSheet();
+  }
+}
+
+function editNote(text) {
+  document.querySelector('#edit-note').textContent = text;
+}
+
+function sheetPoint(event) {
+  const svg = editStage.querySelector('svg');
+  if (!svg) return null;
+  const point = svg.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return null;
+  return point.matrixTransform(matrix.inverse());
+}
 
 function applyEditTransform() {
   editStage.style.transform = `translate(${editState.panX}px, ${editState.panY}px) scale(${editState.zoom})`;
 }
 
 function openEdit() {
-  if (!currentSvg) return;
+  if (!currentDrawing) return;
+  sheetEditor = createSheetEditor(currentDrawing);
+  currentSvg = sheetEditor.svg();
+  pendingDelete = null;
+  setDeleteArmed(false);
   editState.zoom = 1;
   editState.panX = 0;
   editState.panY = 0;
@@ -461,12 +508,13 @@ const editPointers = new Map();
 let editDrag = null;
 editViewport.addEventListener('pointerdown', (event) => {
   editViewport.setPointerCapture(event.pointerId);
-  editPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  editPointers.set(event.pointerId, { x: event.clientX, y: event.clientY, ox: event.clientX, oy: event.clientY });
   editDrag = { x: event.clientX, y: event.clientY, panX: editState.panX, panY: editState.panY };
 });
 editViewport.addEventListener('pointermove', (event) => {
   if (!editPointers.has(event.pointerId)) return;
-  editPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  const prev = editPointers.get(event.pointerId);
+  editPointers.set(event.pointerId, { ...prev, x: event.clientX, y: event.clientY });
   if (editPointers.size === 2) {
     const [a, b] = [...editPointers.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -485,10 +533,38 @@ editViewport.addEventListener('pointermove', (event) => {
   applyEditTransform();
 });
 function endEditPointer(event) {
+  const start = editPointers.get(event.pointerId);
+  const moved = start ? Math.hypot(event.clientX - start.ox, event.clientY - start.oy) : 99;
   editPointers.delete(event.pointerId);
   if (editPointers.size === 0) editDrag = null;
   else editDrag = { ...editDrag, pinch: null, panX: editState.panX, panY: editState.panY, x: event.clientX, y: event.clientY, zoom: editState.zoom };
+  if (deleteArmed && moved < 8 && editPointers.size === 0) {
+    const point = sheetPoint(event);
+    if (!point || !sheetEditor) return;
+    const dim = pickDimension(sheetEditor.dimensions(), point.x, point.y, hitSlopMm(editState.zoom));
+    if (!dim) return;
+    pendingDelete = dim.id;
+    editConfirm.hidden = false;
+    editNote('Delete this dimension?');
+    refreshEditSheet();
+  }
 }
+editDelete.addEventListener('click', () => {
+  setDeleteArmed(!deleteArmed);
+});
+document.querySelector('#edit-confirm-yes').addEventListener('click', () => {
+  if (!sheetEditor || !pendingDelete) return;
+  sheetEditor.remove(pendingDelete);
+  pendingDelete = null;
+  editConfirm.hidden = true;
+  setDeleteArmed(false);
+  refreshEditSheet();
+});
+document.querySelector('#edit-confirm-no').addEventListener('click', () => {
+  pendingDelete = null;
+  editConfirm.hidden = true;
+  setDeleteArmed(false);
+});
 editViewport.addEventListener('pointerup', endEditPointer);
 editViewport.addEventListener('pointercancel', endEditPointer);
 document.querySelector('#sheet-in').addEventListener('click', () => {

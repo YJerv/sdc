@@ -378,6 +378,12 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   padding: 12px;
 }
 
+.edit-confirm { display: flex; align-items: center; gap: 0.5rem; }
+
+#edit-stage [data-selected="true"] text { fill: #8c2f2f; }
+#edit-stage [data-selected="true"] line,
+#edit-stage [data-selected="true"] polygon { stroke: #8c2f2f; fill: #8c2f2f; }
+
 .sheet-stage svg {
   width: min(100vw - 24px, 1100px);
   height: auto;

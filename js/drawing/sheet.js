@@ -152,6 +152,100 @@ function diameterText(size, axis, circles) {
   return match ? `Ø${formatDim(size)}` : formatDim(size);
 }
 
+export function buildEntities(model, views, layout) {
+  const { place, scale } = layout;
+  const features = collectFeatures(model);
+  const entities = [];
+  let count = 0;
+  const groups = [
+    ...features.diameters.map((group) => ({ ...group, measure: 'diameter' })),
+    ...features.radii.map((group) => ({ ...group, measure: 'radius' })),
+  ];
+  for (const group of groups) {
+    for (const feature of group.features) {
+      const view = viewForCircle({ normal: feature.axis, center: feature.center }, views);
+      if (!view) continue;
+      const circle = sheetCircle(feature, view, place, scale);
+      if (!circle) continue;
+      const size = group.measure === 'radius' ? feature.radius : feature.diameter;
+      const twin = entities.find((other) => other.type === 'circle'
+        && other.view === view.frame.id
+        && Math.abs(other.size - size) < 0.2
+        && Math.hypot(other.cx - circle.x, other.cy - circle.y) < 1.5);
+      if (twin) continue;
+      entities.push({
+        id: `ent-${count += 1}`,
+        type: 'circle',
+        measure: group.measure,
+        size,
+        view: view.frame.id,
+        cx: circle.x,
+        cy: circle.y,
+        r: circle.r,
+        scale,
+      });
+    }
+  }
+  for (const id of ['front', 'top', 'right']) {
+    const view = views[id];
+    const found = [];
+    for (const path of view.paths || []) {
+      const edge = edgeFromPath(path, id, place[id], scale);
+      if (edge) found.push(edge);
+    }
+    found.sort((a, b) => b.size - a.size);
+    for (const edge of found) {
+      const twin = entities.find((other) => other.type === 'edge'
+        && other.view === id
+        && other.orient === edge.orient
+        && Math.abs(other.size - edge.size) < 0.8
+        && Math.hypot(other.cx - edge.cx, other.cy - edge.cy) < 2);
+      if (twin) continue;
+      if (entities.filter((other) => other.type === 'edge' && other.view === id).length >= 16) break;
+      entities.push({ ...edge, id: `ent-${count += 1}` });
+    }
+  }
+  return entities;
+}
+
+function edgeFromPath(path, viewId, place, scale) {
+  if (!path || path.hidden || !path.points || path.points.length < 2) return null;
+  const start = path.points[0];
+  const end = path.points[path.points.length - 1];
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 6) return null;
+  let off = 0;
+  for (const point of path.points) {
+    const t = ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / (len * len);
+    const px = start[0] + dx * t;
+    const py = start[1] + dy * t;
+    off = Math.max(off, Math.hypot(point[0] - px, point[1] - py));
+  }
+  if (off > 0.7) return null;
+  const angle = Math.abs(Math.atan2(dy, dx) * 180 / Math.PI) % 180;
+  const horiz = angle < 12 || angle > 168;
+  const vert = Math.abs(angle - 90) < 12;
+  if (!horiz && !vert) return null;
+  const [x1, y1] = toSheet(start[0], start[1], place, scale);
+  const [x2, y2] = toSheet(end[0], end[1], place, scale);
+  return {
+    type: 'edge',
+    measure: 'length',
+    size: len,
+    view: viewId,
+    orient: horiz ? 'h' : 'v',
+    x1,
+    y1,
+    x2,
+    y2,
+    cx: (x1 + x2) / 2,
+    cy: (y1 + y2) / 2,
+    scale,
+  };
+}
+
 function titleBoxes(layout) {
   const names = { front: 'FRONT', top: 'TOP', right: 'RIGHT SIDE', iso: 'ISOMETRIC' };
   return Object.entries(names).map(([id, name]) => {
@@ -526,6 +620,9 @@ function buildDimensions(model, views, layout) {
   for (const dim of dims) {
     if (!dim.radial) dim.box = clampToFrame(dim.box);
   }
+  dims.forEach((dim, index) => {
+    if (!dim.id) dim.id = `dim-${index}`;
+  });
   return { dims, titles, centreLines: centreOnSheet };
 }
 
@@ -731,6 +828,7 @@ export function composeSheet({ model, views, options = {} }) {
     date,
     logoHref: options.logoHref || JET_LOGO,
   });
+  const entities = buildEntities(model, views, layout);
   return {
     svg,
     scale: scaleInfo.value,
@@ -744,6 +842,7 @@ export function composeSheet({ model, views, options = {} }) {
     layout: layout.place,
     titles,
     centreLines: built.centreLines,
+    entities,
     warnings,
     sheet: SHEET,
     title,
@@ -793,15 +892,25 @@ function renderSvg({ layout, views, dimensions, scaleLabel, title, date, logoHre
   }
   parts.push(`<g id="dimensions">`);
   for (const dim of dimensions) parts.push(renderDimension(dim));
-  parts.push(`</g>`);
+  parts.push(`</g><!--end-dimensions-->`);
   parts.push(renderTitle({ title, date, scaleLabel, logoHref }));
   parts.push(`</svg>`);
   return parts.join('');
 }
 
+export function dimensionMarkup(dims) {
+  return dims.map((dim) => renderDimension(dim)).join('');
+}
+
+export function spliceDimensions(svg, markup) {
+  const next = `<g id="dimensions">${markup}</g><!--end-dimensions-->`;
+  if (!svg.includes('<!--end-dimensions-->')) return svg;
+  return svg.replace(/<g id="dimensions">[\s\S]*?<!--end-dimensions-->/, next);
+}
+
 function renderDimension(dim) {
   const box = dim.box;
-  const bits = [`<g data-kind="${dim.kind}">`];
+  const bits = [`<g data-kind="${dim.kind}" data-dim-id="${esc(dim.id || '')}">`];
   if (dim.orient === 'h' && Number.isFinite(dim.x1) && Number.isFinite(dim.x2)) {
     const y = box.cy;
     const gap = box.w / 2 + 0.8;
