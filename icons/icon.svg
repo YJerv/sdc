@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="STEP Drawing Creator">
+  <rect width="64" height="64" rx="14" fill="#1e2a36"/>
+  <path d="M32 16 L48 25 L48 41 L32 50 L16 41 L16 25 Z" fill="#8fb4cc"/>
+  <path d="M32 16 L48 25 L32 33 L16 25 Z" fill="#f4f0e6"/>
+  <path d="M32 33 L48 25 V41 L32 50 Z" fill="#1f4d6e"/>
+  <path d="M32 33 L16 25 V41 L32 50 Z" fill="#4e7590"/>
+</svg>

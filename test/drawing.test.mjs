@@ -1,0 +1,436 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import occtimportjs from 'occt-import-js';
+import { createDrawing } from '../js/drawing/create.js';
+import { prepareModel } from '../js/drawing/geometry.js';
+import { collectFeatures, withoutNearDuplicates } from '../js/drawing/features.js';
+import { formatDim, viewFrames } from '../js/drawing/geometry.js';
+import { formatSheetDate, SHEET_SCALES } from '../js/drawing/sheet.js';
+import { JET_LOGO } from '../js/drawing/jet-logo.js';
+import { pdfFromJpeg } from '../js/pdf-image.js';
+import { canExport, exportPolicy } from '../js/export-policy.js';
+import { STEP_IMPORT_PARAMS, boundingBox, isStepFilename } from '../js/step-model.js';
+
+const FIXTURES = path.join(import.meta.dirname, 'fixtures');
+const SHEET_RIGHT = 420 - 14;
+const SHEET_BOTTOM = 297 - 10 - 52 - 2;
+const SCALES = new Set(['1:1', '1:2', '1:5', '1:10', '2:1', '5:1']);
+
+test('sheet helpers', () => {
+  assert.equal(formatDim(49.996), '50');
+  assert.equal(formatDim(12), '12');
+  assert.equal(formatDim(6.44), '6.4');
+  assert.equal(formatDim(6.36), '6.4');
+  const frames = viewFrames('negY', 0);
+  assert.ok(frames.front.eye[1] < -0.9);
+  assert.ok(frames.front.up[2] > 0.9);
+  assert.ok(frames.front.right[0] > 0.9);
+  assert.equal(exportPolicy.unlocked, true);
+  const logoFile = readFileSync(new URL('../icons/jet-logo.png', import.meta.url)).toString('base64');
+  assert.equal(JET_LOGO, `data:image/png;base64,${logoFile}`);
+  const lateUtc = new Date('2026-11-20T03:30:00Z');
+  assert.equal(formatSheetDate(lateUtc, 'Etc/GMT+4'), '19 Nov 2026');
+  assert.deepEqual(SHEET_SCALES.map((scale) => scale.label), ['1:10', '1:5', '1:2', '1:1', '2:1', '5:1']);
+  assert.equal(formatSheetDate(lateUtc, 'UTC'), '20 Nov 2026');
+  const kept = withoutNearDuplicates(
+    [{ size: 48.3, features: [{ hole: false }] }, { size: 46, features: [{ hole: false }] }, { size: 20, features: [{ hole: true }] }],
+    [50],
+  );
+  assert.deepEqual(kept.map((group) => group.size), [20]);
+  assert.equal(canExport(), true);
+  const pdf = pdfFromJpeg(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), 420, 297);
+  assert.equal(Buffer.from(pdf.slice(0, 5)).toString(), '%PDF-');
+});
+
+test('every fixture produces a third-angle drawing', { timeout: 180000 }, async () => {
+  const occt = await occtimportjs();
+  const files = (await readdir(FIXTURES))
+    .filter((name) => isStepFilename(name))
+    .sort((a, b) => a.localeCompare(b, 'en-GB', { sensitivity: 'base' }));
+  const rows = [];
+  for (const file of files) {
+    const bytes = new Uint8Array(await readFile(path.join(FIXTURES, file)));
+    const result = occt.ReadStepFile(bytes, STEP_IMPORT_PARAMS);
+    const started = performance.now();
+    const drawing = createDrawing(result, {
+      title: file.replace(/\.(step|stp)$/i, ''),
+      date: '19 Nov 2026',
+    });
+    const ms = performance.now() - started;
+    const box = boundingBox(result).size.slice().sort((a, b) => a - b);
+    const overall = drawing.dimensions
+      .filter((dim) => dim.kind === 'overall')
+      .map((dim) => dim.value)
+      .sort((a, b) => a - b);
+    rows.push({ file, ms, scale: drawing.scaleLabel, overall, box });
+    assert.equal(result.success, true, file);
+    for (const id of ['front', 'top', 'right', 'iso']) {
+      assert.match(drawing.svg, new RegExp(`id="view-${id}"`), `${file} ${id}`);
+      const view = drawing.views.find((item) => item.id === id);
+      assert.ok(view.paths.length > 0, `${file} ${id} has linework`);
+    }
+    assert.ok(SCALES.has(drawing.scaleLabel), `${file} scale ${drawing.scaleLabel}`);
+    assert.ok(overall.length === 2 || overall.length === 3, `${file} overall count ${overall.length}`);
+    for (const value of overall) {
+      assert.ok(box.some((edge) => Math.abs(edge - value) <= 0.1), `${file} overall ${value} is not an envelope edge`);
+    }
+    if (overall.length === 2) {
+      const diameter = overall.find((value) => box.filter((edge) => Math.abs(edge - value) <= 0.15).length > 1) || overall[0];
+      const labelled = drawing.dimensions.filter((dim) => dim.text === `Ø${formatDim(diameter)}` || dim.text.includes(`Ø${formatDim(diameter)}`));
+      assert.equal(labelled.length, 1, `${file} should show Ø${formatDim(diameter)} once`);
+    }
+    assert.ok(drawing.layout.top.cy < drawing.layout.front.cy, `${file} top view is above the front`);
+    assert.ok(drawing.layout.right.cx > drawing.layout.front.cx, `${file} right view is to the right`);
+    assert.match(drawing.svg, /id="title-block"/);
+    assert.ok(drawing.svg.includes(JET_LOGO), `${file} title block has no JET logo`);
+    assert.match(drawing.svg, /THIRD ANGLE/);
+    assert.match(drawing.svg, /Created with STEP Drawing Creator/);
+    assert.match(drawing.svg, /MILLIMETRES/);
+    for (const dim of drawing.dimensions) {
+      assert.ok(dim.box.x >= 13.5, `${file} ${dim.text} left of the frame`);
+      assert.ok(dim.box.y >= 13.5, `${file} ${dim.text} above the frame`);
+      assert.ok(dim.box.x + dim.box.w <= SHEET_RIGHT, `${file} ${dim.text} right of the frame`);
+      assert.ok(dim.box.y + dim.box.h <= SHEET_BOTTOM, `${file} ${dim.text} below the frame`);
+      if (dim.kind === 'diameter' || dim.kind === 'radius') {
+        assert.ok(dim.leader, `${file} ${dim.text} has no leader`);
+      }
+    }
+    const boxes = drawing.dimensions.map((dim) => dim.box);
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        assert.equal(boxesOverlap(boxes[i], boxes[j]), false, `${file} dimensions overlap: ${drawing.dimensions[i].text} and ${drawing.dimensions[j].text}`);
+      }
+    }
+    for (const id of ['front', 'top', 'right', 'iso']) {
+      const view = drawing.views.find((item) => item.id === id);
+      assert.equal(view.paths.some((path) => path.hidden), false, `${file} ${id} has a hidden path`);
+      const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+      assert.equal(viewSvg.includes('2.4 1.15'), false, `${file} ${id} draws a hidden line`);
+    }
+    for (const label of ['FRONT', 'TOP', 'RIGHT SIDE', 'ISOMETRIC']) {
+      assert.equal(drawing.svg.includes(`>${label}<`), false, `${file} still labels the ${label} view`);
+    }
+    assert.equal(drawing.dimensions.some((dim) => dim.view === 'right' || dim.feature?.view === 'right'), false, `${file} puts an automatic dimension on the end view`);
+    if (file === 'cone_50x12_v2.step') {
+      for (const id of ['front', 'top', 'right']) {
+        const viewSvg = drawing.svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+        assert.equal(viewSvg.includes('6 1.3 1.1 1.3'), true, `${file} ${id} is missing centre lines`);
+      }
+      const topCentres = centreSegments(drawing.svg, 'top');
+      assert.equal(topCentres.length, 2, `cone top centre mark has ${topCentres.length} lines`);
+      for (let i = 0; i < topCentres.length; i += 1) {
+        for (let j = i + 1; j < topCentres.length; j += 1) {
+          const gap = parallelCentreGap(topCentres[i], topCentres[j]) / drawing.scale;
+          assert.ok(gap > 0.3, `cone top centre lines are ${gap.toFixed(3)} mm apart`);
+        }
+      }
+      for (const id of ['front', 'right']) {
+        const view = drawing.views.find((item) => item.id === id);
+        const gap = outlineGap(view.paths);
+        assert.ok(gap <= 0.2, `${id} outline has a ${gap.toFixed(3)} mm gap`);
+        const span = bottomSpan(view.paths);
+        assert.ok(span >= 40, `${id} bottom line is ${span.toFixed(1)} mm`);
+      }
+    }
+    if (file === 'cad_upload_1.step') {
+      const topView = drawing.views.find((view) => view.id === 'top');
+      const iso = drawing.views.find((view) => view.id === 'iso');
+      assert.ok(topView.paths.length < 80, `top view still has facet chains (${topView.paths.length})`);
+      assert.ok(iso.paths.length < 550, `iso still has facet chains (${iso.paths.length})`);
+    }
+    if (file === 'cone_50x12_v2.step') {
+      const cluster = (drawing.layout.front.cx + drawing.layout.right.cx) / 2;
+      assert.ok(Math.abs(cluster - 210) < 40, `cone views are not centred (${cluster})`);
+    }
+    const leaders = drawing.dimensions.filter((dim) => dim.leaderLine);
+    for (let i = 0; i < leaders.length; i += 1) {
+      for (let j = i + 1; j < leaders.length; j += 1) {
+        assert.equal(segmentsCross(leaders[i].leaderLine, leaders[j].leaderLine), false, `${file} leaders cross: ${leaders[i].text} and ${leaders[j].text}`);
+      }
+    }
+    for (const dim of drawing.dimensions) {
+      for (const title of drawing.titles) {
+        assert.equal(boxesOverlap(dim.box, title), false, `${file} ${dim.text} overlaps ${title.text}`);
+      }
+    }
+    const diameters = drawing.dimensions.filter((dim) => dim.kind === 'diameter');
+    for (const dim of diameters) {
+      assert.ok(
+        boxOutsideCircle(dim.box, dim.feature.x, dim.feature.y, dim.feature.r),
+        `${file} ${dim.text} sits inside its circle`,
+      );
+      for (const line of drawing.centreLines) {
+        assert.equal(segmentHitsBox(line, dim.box), false, `${file} ${dim.text} crosses a centre line`);
+      }
+    }
+    if (diameters.length >= 2) {
+      const xs = diameters.map((dim) => dim.box.cx);
+      const ys = diameters.map((dim) => dim.box.cy);
+      const spread = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      assert.ok(spread > 8, `${file} diameter labels are stacked (${spread.toFixed(1)})`);
+    }
+    if (file === 'cone_50x12_v2.step') {
+      const hole = diameters.find((dim) => dim.text.includes('Ø20'));
+      assert.ok(hole, 'cone Ø20');
+      assert.equal(hole.feature.view, 'top');
+      const tip = Math.hypot(hole.leaderLine.x2 - hole.feature.x, hole.leaderLine.y2 - hole.feature.y);
+      assert.ok(Math.abs(tip - hole.feature.r) < 0.6, `leader tip is not on the hole (${tip})`);
+      assert.ok(pointLineDistance(hole.feature, hole.leaderLine) < 0.4);
+      const leaderLength = Math.hypot(hole.leaderLine.x2 - hole.leaderLine.x1, hole.leaderLine.y2 - hole.leaderLine.y1);
+      assert.ok(leaderLength < 22, `Ø20 leader is too long (${leaderLength.toFixed(1)})`);
+    }
+    if (file === 'cone_50x12_v2.step') {
+      const text = drawing.dimensions.map((dim) => dim.text).join(' ');
+      const diameters = drawing.dimensions.filter((dim) => dim.text.includes('Ø50'));
+      assert.equal(diameters.length, 1);
+      assert.match(text, /Ø20/);
+      assert.equal(/Ø46|Ø48/.test(text), false, text);
+      const rim = drawing.dimensions.find((dim) => dim.kind === 'radius' && dim.text.includes('R2'));
+      assert.ok(rim, `cone radii ${drawing.dimensions.filter((dim) => dim.kind === 'radius').map((dim) => dim.text).join(', ')}`);
+      assert.equal(rim.feature.view, 'front');
+      assert.ok(rim.leaderLine);
+      assert.match(text, /(^|\s)12(\s|$)/);
+      assert.match(drawing.svg, /data-leader="1"/);
+      const positions = drawing.dimensions.filter((dim) => dim.kind === 'position').map((dim) => dim.text);
+      assert.equal(positions.includes('25'), false, `centre-to-edge dimensions ${positions.join(', ')}`);
+      assert.equal(positions.some((text) => text === '24.9' || text === '24.8'), false);
+      const one = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '1:1' });
+      const two = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '2:1' });
+      const oneSize = viewGeometrySize(one.svg, 'front');
+      const twoSize = viewGeometrySize(two.svg, 'front');
+      assert.ok(Math.abs(twoSize.w / oneSize.w - 2) < 0.05, `width ${twoSize.w} vs ${oneSize.w}`);
+      assert.ok(Math.abs(twoSize.h / oneSize.h - 2) < 0.05, `height ${twoSize.h} vs ${oneSize.h}`);
+      assert.ok(Math.abs(two.layout.front.w / one.layout.front.w - 2) < 0.02);
+      assert.match(two.svg, />2:1</);
+      const capped = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '5:1' });
+      assert.equal(capped.scaleLabel, capped.maxScale);
+      assert.ok(capped.scale <= 2, `5:1 was not capped (${capped.scaleLabel})`);
+      for (const id of ['front', 'top', 'right', 'iso']) {
+        const place = capped.layout[id];
+        assert.ok(place.cx - place.w / 2 >= 8, `${id} left`);
+        assert.ok(place.cx + place.w / 2 <= 412, `${id} right`);
+        assert.ok(place.cy - place.h / 2 >= 8, `${id} top`);
+        assert.ok(place.cy + place.h / 2 <= 230, `${id} bottom`);
+      }
+      const frame = viewFrames().iso;
+      const model = prepareModel(result);
+      const hole = model.circles.holes.find((circle) => circle.diameter > 18 && circle.diameter < 22);
+      const axis = hole.normal;
+      const eye = frame.eye;
+      const along = eye[0] * axis[0] + eye[1] * axis[1] + eye[2] * axis[2];
+      const radial = [eye[0] - axis[0] * along, eye[1] - axis[1] * along, eye[2] - axis[2] * along];
+      const radialLength = Math.hypot(...radial);
+      const buried = hole.center.map((value, index) => value - radial[index] / radialLength * 18);
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      const project = (point) => [
+        point[0] * frame.right[0] + point[1] * frame.right[1] + point[2] * frame.right[2],
+        point[0] * frame.up[0] + point[1] * frame.up[1] + point[2] * frame.up[2],
+      ];
+      for (const point of model.points) {
+        const [x, y] = project(point);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      const [bx, by] = project(buried);
+      const px = bx - (minX + maxX) / 2;
+      const py = by - (minY + maxY) / 2;
+      let nearest = Infinity;
+      for (const path of drawing.views.find((view) => view.id === 'iso').paths) {
+        if (path.hidden) continue;
+        for (let i = 1; i < path.points.length; i += 1) {
+          const a = path.points[i - 1];
+          const b = path.points[i];
+          const dx = b[0] - a[0];
+          const dy = b[1] - a[1];
+          const length = dx * dx + dy * dy || 1;
+          const t = Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / length));
+          nearest = Math.min(nearest, Math.hypot(px - (a[0] + dx * t), py - (a[1] + dy * t)));
+        }
+      }
+      assert.ok(nearest > 2, `occluded cone face still has a line ${nearest.toFixed(2)} mm away`);
+    }
+    const features = collectFeatures(prepareModel(result));
+    for (const group of features.radii) {
+      const label = `R${Number.isInteger(group.size) ? group.size : group.size.toFixed(1)}`;
+      assert.ok(
+        drawing.dimensions.some((dim) => dim.kind === 'radius' && dim.text.includes(label)),
+        `${file} missing radius ${label}`,
+      );
+    }
+    const frames = viewFrames();
+    for (const group of features.diameters) {
+      const sample = group.features[0];
+      const align = (frame) => Math.abs(sample.axis[0] * frame.eye[0] + sample.axis[1] * frame.eye[1] + sample.axis[2] * frame.eye[2]);
+      if (align(frames.right) > 0.75 && align(frames.front) <= 0.75 && align(frames.top) <= 0.75) continue;
+      const label = `Ø${Number.isInteger(group.size) ? group.size : group.size.toFixed(1)}`;
+      const present = drawing.dimensions.some((dim) => dim.kind === 'diameter' && dim.text.includes(label.replace(/\.0$/, '')));
+      assert.equal(present, true, `${file} missing diameter ${label}`);
+    }
+  }
+  console.log('| File | Drawing | Scale | Overall dims |');
+  console.log('| --- | --- | --- | --- |');
+  for (const row of rows) {
+    console.log(`| ${row.file} | ${row.ms.toFixed(0)} ms | ${row.scale} | ${row.overall.map((value) => value.toFixed(2)).join(', ')} |`);
+  }
+});
+
+function viewGeometrySize(svg, id) {
+  const chunk = svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+  const xs = [];
+  const ys = [];
+  for (const match of chunk.matchAll(/[ML](-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)) {
+    xs.push(Number(match[1]));
+    ys.push(Number(match[2]));
+  }
+  return {
+    w: Math.max(...xs) - Math.min(...xs),
+    h: Math.max(...ys) - Math.min(...ys),
+  };
+}
+
+function boxOutsideCircle(box, cx, cy, radius) {
+  const nearestX = Math.max(box.x, Math.min(cx, box.x + box.w));
+  const nearestY = Math.max(box.y, Math.min(cy, box.y + box.h));
+  return Math.hypot(nearestX - cx, nearestY - cy) >= radius - 0.05;
+}
+
+function segmentHitsBox(line, box) {
+  const pad = 0.4;
+  const rect = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
+  const inside = (x, y) => x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+  if (inside(line.x1, line.y1) || inside(line.x2, line.y2)) return true;
+  const edges = [
+    { x1: rect.x, y1: rect.y, x2: rect.x + rect.w, y2: rect.y },
+    { x1: rect.x + rect.w, y1: rect.y, x2: rect.x + rect.w, y2: rect.y + rect.h },
+    { x1: rect.x, y1: rect.y + rect.h, x2: rect.x + rect.w, y2: rect.y + rect.h },
+    { x1: rect.x, y1: rect.y, x2: rect.x, y2: rect.y + rect.h },
+  ];
+  return edges.some((edge) => segmentsCross(line, edge));
+}
+
+function segmentsCross(a, b) {
+  const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const p = { x: a.x1, y: a.y1 };
+  const q = { x: a.x2, y: a.y2 };
+  const r = { x: b.x1, y: b.y1 };
+  const s = { x: b.x2, y: b.y2 };
+  const d1 = side(p, q, r);
+  const d2 = side(p, q, s);
+  const d3 = side(r, s, p);
+  const d4 = side(r, s, q);
+  if (d1 === 0 || d2 === 0 || d3 === 0 || d4 === 0) return false;
+  return (d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0);
+}
+
+function centreSegments(svg, id) {
+  const chunk = svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+  return [...chunk.matchAll(/<line x1="([^"]+)" y1="([^"]+)" x2="([^"]+)" y2="([^"]+)"[^>]*stroke-dasharray="6 1\.3 1\.1 1\.3"/g)]
+    .map((match) => match.slice(1, 5).map(Number));
+}
+
+function parallelCentreGap(a, b) {
+  const ax = a[2] - a[0];
+  const ay = a[3] - a[1];
+  const bx = b[2] - b[0];
+  const by = b[3] - b[1];
+  const al = Math.hypot(ax, ay) || 1;
+  const bl = Math.hypot(bx, by) || 1;
+  const cross = Math.abs((ax / al) * (by / bl) - (ay / al) * (bx / bl));
+  if (cross > 0.05) return Infinity;
+  const mx = (b[0] + b[2]) / 2;
+  const my = (b[1] + b[3]) / 2;
+  return Math.abs(ay * (mx - a[0]) - ax * (my - a[1])) / al;
+}
+
+function outlineGap(paths) {
+  const segments = [];
+  for (const path of paths) {
+    for (let i = 1; i < path.points.length; i += 1) segments.push([path.points[i - 1], path.points[i]]);
+  }
+  const seen = new Set();
+  const unique = [];
+  for (const path of paths) {
+    for (const point of path.points) {
+      const key = `${Math.round(point[0] * 10)},${Math.round(point[1] * 10)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(point);
+    }
+  }
+  unique.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const point of unique) {
+    while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper = [];
+  for (let i = unique.length - 1; i >= 0; i -= 1) {
+    const point = unique[i];
+    while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  const hull = lower.concat(upper);
+  let worst = 0;
+  for (let i = 0; i < hull.length; i += 1) {
+    const a = hull[i];
+    const b = hull[(i + 1) % hull.length];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.5));
+    for (let step = 0; step <= steps; step += 1) {
+      const point = [a[0] + (b[0] - a[0]) * step / steps, a[1] + (b[1] - a[1]) * step / steps];
+      let best = Infinity;
+      for (const [c, d] of segments) best = Math.min(best, pointSegmentDistance(point, c, d));
+      if (best > worst) worst = best;
+    }
+  }
+  return worst;
+}
+
+function bottomSpan(paths) {
+  let minY = Infinity;
+  for (const path of paths) {
+    for (const point of path.points) if (point[1] < minY) minY = point[1];
+  }
+  const xs = [];
+  for (const path of paths) {
+    for (let i = 1; i < path.points.length; i += 1) {
+      const a = path.points[i - 1];
+      const b = path.points[i];
+      if (Math.abs(a[1] - minY) < 0.25 && Math.abs(b[1] - minY) < 0.25) xs.push(a[0], b[0]);
+    }
+  }
+  if (!xs.length) return 0;
+  return Math.max(...xs) - Math.min(...xs);
+}
+
+function pointSegmentDistance(point, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const length = dx * dx + dy * dy || 1e-12;
+  const t = Math.max(0, Math.min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length));
+  return Math.hypot(point[0] - (a[0] + dx * t), point[1] - (a[1] + dy * t));
+}
+
+function pointLineDistance(point, line) {
+  const dx = line.x2 - line.x1;
+  const dy = line.y2 - line.y1;
+  const length = Math.hypot(dx, dy) || 1;
+  return Math.abs(dy * point.x - dx * point.y + line.x2 * line.y1 - line.y2 * line.x1) / length;
+}
+
+function boxesOverlap(a, b) {
+  return a.x < b.x + b.w - 0.05
+    && a.x + a.w - 0.05 > b.x
+    && a.y < b.y + b.h - 0.05
+    && a.y + a.h - 0.05 > b.y;
+}
