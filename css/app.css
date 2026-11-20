@@ -378,6 +378,11 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   padding: 12px;
 }
 
+.sheet-bar button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
 .edit-confirm { display: flex; align-items: center; gap: 0.5rem; }
 .edit-label { align-self: center; color: var(--muted); font-size: 0.85rem; }
 
