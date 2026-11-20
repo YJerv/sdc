@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyQuaternion,
+  basisAlignedTo,
   basisForFront,
   basisFromUp,
   dot,
+  featureDirection,
+  nearestAxis,
   quaternionFromTo,
   seatOnGrid,
   toAligned,
@@ -51,6 +54,32 @@ test('a changed front face squares the part and seats it on the grid', () => {
   assert.ok(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2) < 0.05);
   assert.ok(Math.abs((Math.min(...ys) + Math.max(...ys)) / 2) < 0.05);
   assert.ok(dot(basis.y, [0, -1, 0]) < -0.7);
+});
+
+test('a tilted face snaps onto the nearest axis and squares the part', () => {
+  const angle = 7 * Math.PI / 180;
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const rotY = (p) => [c * p[0] + s * p[2], p[1], -s * p[0] + c * p[2]];
+  const raw = [
+    [0, 0, 0], [10, 0, 0], [10, 4, 0], [0, 4, 0],
+    [0, 0, 6], [10, 0, 6], [10, 4, 6], [0, 4, 6],
+  ].map(rotY);
+  const normal = rotY([0, 0, 1]);
+  assert.deepEqual(nearestAxis(normal).map((value) => Math.round(value)), [0, 0, 1]);
+  const flat = featureDirection(raw.slice(0, 4), [normal, normal, normal]);
+  assert.ok(dot(nearestAxis(flat), [0, 0, 1]) > 0.9);
+  const basis = basisAlignedTo(normal, raw);
+  const aligned = raw.map((point) => toAligned(point, basis, seatOnGrid(raw, basis)));
+  const span = (axis) => {
+    const values = aligned.map((point) => point[axis]);
+    return Math.max(...values) - Math.min(...values);
+  };
+  const spans = [span(0), span(1), span(2)].sort((a, b) => a - b);
+  assert.ok(Math.abs(spans[0] - 4) < 0.05, spans.join(','));
+  assert.ok(Math.abs(spans[1] - 6) < 0.05, spans.join(','));
+  assert.ok(Math.abs(spans[2] - 10) < 0.05, spans.join(','));
+  assert.ok(Math.abs(Math.min(...aligned.map((point) => point[2]))) < 1e-6);
 });
 
 test('a click does not set the top until Set top is armed', () => {

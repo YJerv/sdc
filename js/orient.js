@@ -217,6 +217,120 @@ export function worldPoints(result) {
   return points;
 }
 
+const PRINCIPAL_AXES = [
+  [1, 0, 0], [-1, 0, 0],
+  [0, 1, 0], [0, -1, 0],
+  [0, 0, 1], [0, 0, -1],
+];
+
+/** The world axis ±X, ±Y or ±Z closest to a direction. */
+export function nearestAxis(direction) {
+  const unit = norm(direction);
+  let best = PRINCIPAL_AXES[0];
+  let score = -2;
+  for (const axis of PRINCIPAL_AXES) {
+    const next = dot(unit, axis);
+    if (next > score) {
+      score = next;
+      best = axis;
+    }
+  }
+  return best.slice();
+}
+
+/**
+ * Direction to align: a flat face gives its normal, a cylinder or a straight
+ * run of edges gives its axis.
+ */
+export function featureDirection(points, normals = []) {
+  if (normals.length >= 3) {
+    const total = normals.reduce((sum, normal) => add(sum, norm(normal)), [0, 0, 0]);
+    const average = norm(total);
+    let scatter = 0;
+    for (const normal of normals) scatter += 1 - Math.abs(dot(norm(normal), average));
+    if (scatter / normals.length < 0.04) return average;
+    return axisFromNormals(normals);
+  }
+  return [0, 0, 1];
+}
+
+function axisFromNormals(normals) {
+  const matrix = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  for (const normal of normals) {
+    const unit = norm(normal);
+    for (let row = 0; row < 3; row += 1) {
+      for (let col = 0; col < 3; col += 1) matrix[row * 3 + col] += unit[row] * unit[col];
+    }
+  }
+  const inverse = invert3(matrix);
+  if (!inverse) return [0, 0, 1];
+  let vector = [0.2, 0.7, 0.4];
+  for (let i = 0; i < 12; i += 1) vector = norm(mul3(inverse, vector));
+  return vector;
+}
+
+function invert3(m) {
+  const a = m[0]; const b = m[1]; const c = m[2];
+  const d = m[3]; const e = m[4]; const f = m[5];
+  const g = m[6]; const h = m[7]; const i = m[8];
+  const A = e * i - f * h;
+  const B = f * g - d * i;
+  const C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  if (Math.abs(det) < 1e-9) return null;
+  const inv = 1 / det;
+  return [
+    A * inv, (c * h - b * i) * inv, (b * f - c * e) * inv,
+    B * inv, (a * i - c * g) * inv, (c * d - a * f) * inv,
+    C * inv, (b * g - a * h) * inv, (a * e - b * d) * inv,
+  ];
+}
+
+function mul3(m, v) {
+  return [
+    m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+    m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
+    m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
+  ];
+}
+
+/**
+ * Basis that sends `direction` onto the nearest principal axis and squares
+ * the part around that axis.
+ */
+export function basisAlignedTo(direction, points = []) {
+  const target = nearestAxis(direction);
+  const unit = norm(direction);
+  const locked = dot(unit, target) >= 0 ? unit : mul(unit, -1);
+  const helper = Math.abs(locked[2]) < 0.9 ? [0, 0, 1] : [0, 1, 0];
+  let u = norm(cross(helper, locked));
+  let v = norm(cross(locked, u));
+  if (points.length >= 3) {
+    const angle = principalAngle(points, u, v, locked);
+    const wobble = angle - Math.round(angle / (Math.PI / 2)) * (Math.PI / 2);
+    const c = Math.cos(wobble);
+    const s = Math.sin(wobble);
+    u = norm(add(mul(u, c), mul(v, s)));
+    v = norm(cross(locked, u));
+  }
+  if (Math.abs(target[0]) > 0.5) {
+    const x = locked;
+    const y = v;
+    const z = norm(cross(x, y));
+    return { x, y: norm(cross(z, x)), z };
+  }
+  if (Math.abs(target[1]) > 0.5) {
+    const y = locked;
+    const z = v;
+    const x = norm(cross(y, z));
+    return { x, y, z: norm(cross(x, y)) };
+  }
+  const z = locked;
+  const x = u;
+  const y = norm(cross(z, x));
+  return { x: norm(cross(y, z)), y, z };
+}
+
 /** Map a point from world coordinates into the aligned frame (X right, Y depth, Z up, seated). */
 export function toAligned(point, basis, translation) {
   const p = add(point, translation);

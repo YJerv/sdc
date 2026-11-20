@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
-import { basisForFront, basisFromUp, seatOnGrid } from './orient.js';
+import { basisAlignedTo, basisForFront, basisFromUp, featureDirection, seatOnGrid } from './orient.js';
 import { createTopArm } from './top-arm.js';
 
 /**
@@ -79,6 +79,8 @@ export function createViewer(canvas) {
   };
   const topArm = createTopArm();
   let onTopChosen = () => {};
+  let alignArmed = false;
+  let onAlignChosen = () => {};
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let pointerDown = null;
@@ -380,9 +382,19 @@ export function createViewer(canvas) {
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
-    if (!topArm.isArmed()) return;
     const hit = raycaster.intersectObject(model, true).find((item) => item.object.isMesh && item.face);
     if (!hit) return;
+    if (alignArmed) {
+      const samples = faceSamples(hit.object, hit.faceIndex);
+      const direction = samples.normals.length
+        ? featureDirection(samples.points, samples.normals)
+        : [hit.face.normal.x, hit.face.normal.y, hit.face.normal.z];
+      orientPart(basisAlignedTo(direction, localPoints()), 'iso');
+      alignArmed = false;
+      onAlignChosen();
+      return;
+    }
+    if (!topArm.isArmed()) return;
     topArm.click();
     setTopFromNormal(hit.face.normal);
     onTopChosen();
@@ -406,6 +418,16 @@ export function createViewer(canvas) {
     onTopChosen(listener) {
       onTopChosen = listener;
     },
+    armAlign() {
+      alignArmed = true;
+      topArm.cancel();
+    },
+    cancelAlign() {
+      alignArmed = false;
+    },
+    onAlignChosen(listener) {
+      onAlignChosen = listener;
+    },
     setGridVisible(visible) {
       gridVisible = Boolean(visible);
       if (!gridVisible && grid) {
@@ -428,6 +450,35 @@ export function createViewer(canvas) {
       renderer.dispose();
     },
   };
+}
+
+function faceSamples(mesh, triangleIndex) {
+  const geometry = mesh.geometry;
+  const index = geometry.getIndex();
+  const position = geometry.getAttribute('position');
+  if (!index || !position || !Number.isFinite(triangleIndex)) return { points: [], normals: [] };
+  const group = geometry.groups.find((item) => {
+    const start = item.start / 3;
+    return triangleIndex >= start && triangleIndex < start + item.count / 3;
+  });
+  const first = group ? group.start / 3 : triangleIndex;
+  const count = group ? group.count / 3 : 1;
+  const step = Math.max(1, Math.floor(count / 36));
+  const points = [];
+  const normals = [];
+  for (let triangle = first; triangle < first + count; triangle += step) {
+    const ids = [0, 1, 2].map((corner) => index.getX(triangle * 3 + corner));
+    const verts = ids.map((id) => [position.getX(id), position.getY(id), position.getZ(id)]);
+    points.push(...verts);
+    const edgeA = [verts[1][0] - verts[0][0], verts[1][1] - verts[0][1], verts[1][2] - verts[0][2]];
+    const edgeB = [verts[2][0] - verts[0][0], verts[2][1] - verts[0][1], verts[2][2] - verts[0][2]];
+    normals.push([
+      edgeA[1] * edgeB[2] - edgeA[2] * edgeB[1],
+      edgeA[2] * edgeB[0] - edgeA[0] * edgeB[2],
+      edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0],
+    ]);
+  }
+  return { points, normals };
 }
 
 function tintGrid(helper, hex) {

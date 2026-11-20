@@ -126,6 +126,8 @@ function setViewsEnabled(enabled) {
   for (const button of viewButtons) button.disabled = !enabled;
   const setTop = document.querySelector('#set-top');
   if (setTop) setTop.disabled = !enabled;
+  const align = document.querySelector('#align-axis');
+  if (align) align.disabled = !enabled;
 }
 
 function resetDetails() {
@@ -146,6 +148,8 @@ function resetDetails() {
   setViewsEnabled(false);
   viewer.cancelTop();
   showTopArm(false);
+  viewer.cancelAlign();
+  showAlign(false);
   currentResult = null;
   currentName = '';
   drawingScale = null;
@@ -330,8 +334,18 @@ function showTopArm(armed) {
   setTopHint.hidden = !armed;
 }
 
+const alignButton = document.querySelector('#align-axis');
+const alignHint = document.querySelector('#align-hint');
+
+function showAlign(armed) {
+  alignButton.setAttribute('aria-pressed', armed ? 'true' : 'false');
+  alignHint.hidden = !armed;
+}
+
 setTopButton.addEventListener('click', () => {
   if (setTopButton.disabled) return;
+  viewer.cancelAlign();
+  showAlign(false);
   viewer.armTop();
   showTopArm(true);
 });
@@ -340,6 +354,18 @@ document.querySelector('#set-top-cancel').addEventListener('click', () => {
   showTopArm(false);
 });
 viewer.onTopChosen(() => showTopArm(false));
+alignButton.addEventListener('click', () => {
+  if (alignButton.disabled) return;
+  viewer.cancelTop();
+  showTopArm(false);
+  viewer.armAlign();
+  showAlign(true);
+});
+document.querySelector('#align-cancel').addEventListener('click', () => {
+  viewer.cancelAlign();
+  showAlign(false);
+});
+viewer.onAlignChosen(() => showAlign(false));
 
 for (const button of viewButtons) {
   button.addEventListener('click', () => {
