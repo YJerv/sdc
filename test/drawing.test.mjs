@@ -5,7 +5,7 @@ import test from 'node:test';
 import occtimportjs from 'occt-import-js';
 import { createDrawing } from '../js/drawing/create.js';
 import { prepareModel } from '../js/drawing/geometry.js';
-import { collectFeatures } from '../js/drawing/features.js';
+import { collectFeatures, withoutNearDuplicates } from '../js/drawing/features.js';
 import { formatDim, viewFrames } from '../js/drawing/geometry.js';
 import { pdfFromJpeg } from '../js/pdf-image.js';
 import { canExport, exportPolicy } from '../js/export-policy.js';
@@ -26,6 +26,11 @@ test('sheet helpers', () => {
   assert.ok(frames.front.up[2] > 0.9);
   assert.ok(frames.front.right[0] > 0.9);
   assert.equal(exportPolicy.unlocked, true);
+  const kept = withoutNearDuplicates(
+    [{ size: 48.3, features: [{ hole: false }] }, { size: 46, features: [{ hole: false }] }, { size: 20, features: [{ hole: true }] }],
+    [50],
+  );
+  assert.deepEqual(kept.map((group) => group.size), [20]);
   assert.equal(canExport(), true);
   const pdf = pdfFromJpeg(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), 420, 297);
   assert.equal(Buffer.from(pdf.slice(0, 5)).toString(), '%PDF-');
@@ -131,6 +136,11 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       const diameters = drawing.dimensions.filter((dim) => dim.text.includes('Ø50'));
       assert.equal(diameters.length, 1);
       assert.match(text, /Ø20/);
+      assert.equal(/Ø46|Ø48/.test(text), false, text);
+      const rim = drawing.dimensions.find((dim) => dim.kind === 'radius' && dim.text.includes('R2'));
+      assert.ok(rim, `cone radii ${drawing.dimensions.filter((dim) => dim.kind === 'radius').map((dim) => dim.text).join(', ')}`);
+      assert.ok(rim.feature.view === 'front' || rim.feature.view === 'right', rim.feature.view);
+      assert.ok(rim.leaderLine);
       assert.match(text, /(^|\s)12(\s|$)/);
       assert.match(drawing.svg, /data-leader="1"/);
       const positions = drawing.dimensions.filter((dim) => dim.kind === 'position').map((dim) => dim.text);

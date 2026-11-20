@@ -178,6 +178,98 @@ function smallestFromVectors(vectors) {
   return v;
 }
 
+function fitCircle2d(samples) {
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  let sxz = 0;
+  let syz = 0;
+  let sz = 0;
+  const n = samples.length;
+  for (const [x, y] of samples) {
+    const z = x * x + y * y;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    syy += y * y;
+    sxy += x * y;
+    sxz += x * z;
+    syz += y * z;
+    sz += z;
+  }
+  const rows = [
+    [sxx, sxy, sx, sxz],
+    [sxy, syy, sy, syz],
+    [sx, sy, n, sz],
+  ];
+  for (let i = 0; i < 3; i += 1) {
+    let pivot = i;
+    for (let row = i + 1; row < 3; row += 1) {
+      if (Math.abs(rows[row][i]) > Math.abs(rows[pivot][i])) pivot = row;
+    }
+    [rows[i], rows[pivot]] = [rows[pivot], rows[i]];
+    const div = rows[i][i] || 1e-12;
+    for (let col = i; col < 4; col += 1) rows[i][col] /= div;
+    for (let row = 0; row < 3; row += 1) {
+      if (row === i) continue;
+      const factor = rows[row][i];
+      for (let col = i; col < 4; col += 1) rows[row][col] -= factor * rows[i][col];
+    }
+  }
+  const a = rows[0][3] / 2;
+  const b = rows[1][3] / 2;
+  const c0 = rows[2][3];
+  const radius = Math.sqrt(Math.max(0, a * a + b * b + c0));
+  let error = 0;
+  for (const [x, y] of samples) error += Math.abs(Math.hypot(x - a, y - b) - radius);
+  return { a, b, r: radius, err: error / n };
+}
+
+/** A rounded rim is a small circle in the radial profile, not a diameter. */
+export function profileFillet(points) {
+  if (!points || points.length < 16) return null;
+  const centre = mean(points);
+  const axis = smallestAxis(points, centre);
+  const profile = points.map((point) => {
+    const delta = sub(point, centre);
+    const along = dot(delta, axis);
+    return [length(sub(delta, mul(axis, along))), along];
+  });
+  const fit = fitCircle2d(profile);
+  if (!Number.isFinite(fit.r) || fit.err > 0.15 || fit.r < 0.4 || fit.r > 8) return null;
+  let minRadial = Infinity;
+  let maxRadial = -Infinity;
+  let minAlong = Infinity;
+  let maxAlong = -Infinity;
+  for (const [radial, along] of profile) {
+    if (radial < minRadial) minRadial = radial;
+    if (radial > maxRadial) maxRadial = radial;
+    if (along < minAlong) minAlong = along;
+    if (along > maxAlong) maxAlong = along;
+  }
+  if (maxRadial - minRadial < fit.r * 0.45 || maxAlong - minAlong < fit.r * 0.45) return null;
+  if (fit.a < fit.r * 1.5) return null;
+  const radial = Math.abs(axis[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const arcNormal = norm(crossSafe(axis, radial));
+  return {
+    radius: snapLength(fit.r),
+    axis,
+    axial: add(centre, mul(axis, fit.b)),
+    spine: fit.a,
+    arcNormal,
+  };
+}
+
+function crossSafe(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
 export function recogniseFaces(model) {
   const faces = [];
   model.faces.forEach((face, index) => {
@@ -187,8 +279,9 @@ export function recogniseFaces(model) {
       return [tri.nx, tri.ny, tri.nz];
     });
     const fit = classifyFace(points, normals);
-    if (!fit) return;
-    faces.push({ ...fit, index, points });
+    const profile = fit?.type === 'plane' || fit?.type === 'cylinder' ? null : profileFillet(points);
+    if (!fit && !profile) return;
+    faces.push({ ...(fit || { type: 'fillet' }), profile, index, points });
   });
   return faces;
 }
@@ -228,6 +321,20 @@ export function collectFeatures(model) {
       hole: false,
     });
   }
+  for (const face of recognised) {
+    if (!face.profile) continue;
+    raw.push({
+      diameter: snapLength(face.profile.radius * 2),
+      radius: face.profile.radius,
+      center: face.profile.axial,
+      axis: face.profile.arcNormal,
+      hole: false,
+      profile: true,
+      revolution: face.profile.axis,
+      axial: face.profile.axial,
+      spine: face.profile.spine,
+    });
+  }
   const features = [];
   for (const item of raw) {
     const twin = features.find((other) => sameFeature(item, other));
@@ -244,7 +351,40 @@ export function collectFeatures(model) {
     if (found) found.features.push(feature);
     else bucket.push({ size: key, features: [feature], kind: fillet ? 'radius' : 'diameter' });
   }
-  return { diameters, radii, recognised };
+  return {
+    diameters: withoutNearDuplicates(diameters, envelopeSizes(model)),
+    radii,
+    recognised,
+  };
+}
+
+function envelopeSizes(model) {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const point of model.points || []) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      if (point[axis] < min[axis]) min[axis] = point[axis];
+      if (point[axis] > max[axis]) max[axis] = point[axis];
+    }
+  }
+  const size = [0, 1, 2].map((axis) => max[axis] - min[axis]);
+  const envelopes = [];
+  for (let i = 0; i < 3; i += 1) {
+    for (let j = i + 1; j < 3; j += 1) {
+      if (Math.abs(size[i] - size[j]) <= 0.4) envelopes.push(snapLength(Math.max(size[i], size[j])));
+    }
+  }
+  return envelopes;
+}
+
+/** Drop non-hole diameters that are only a tangent edge of a larger size. */
+export function withoutNearDuplicates(groups, envelopes = []) {
+  const pool = [...groups.map((group) => group.size), ...envelopes];
+  return groups.filter((group) => {
+    if (group.features.some((feature) => feature.hole)) return true;
+    return !pool.some((size) => size > group.size + 0.2
+      && group.size >= size - Math.max(1.2, size * 0.09));
+  });
 }
 
 /** Snap a feature centre onto a coaxial axis when it is already very close. */

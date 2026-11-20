@@ -473,29 +473,39 @@ function buildDimensions(model, views, layout) {
     const callout = group.features.length > 1
       ? `${group.features.length} × R${formatDim(group.size)}`
       : `R${formatDim(group.size)}`;
-    const host = viewForCircle({ normal: sample.axis, center: sample.center }, views) || views.front;
-    const hostPlace = place[host.frame.id];
-    const rect = viewRect(hostPlace);
-    let box = makeBox(callout, rect.right + 2 + textWidth(callout) / 2, rect.top + 6);
-    let placed = false;
-    for (let step = 0; step < 8; step += 1) {
-      if (!hitsAny(box, boxes) && !hitsRect(box, rect)) {
-        placed = true;
-        break;
-      }
-      box = { ...box, x: box.x + 4, cx: box.cx + 4 };
-    }
+    const host = sample.profile
+      ? profileView(sample.revolution, views)
+      : (viewForCircle({ normal: sample.axis, center: sample.center }, views) || front);
+    const centre = sample.profile
+      ? [
+        sample.axial[0] + host.frame.right[0] * sample.spine,
+        sample.axial[1] + host.frame.right[1] * sample.spine,
+        sample.axial[2] + host.frame.right[2] * sample.spine,
+      ]
+      : sample.center;
+    const placed = placeRadialCallout({
+      text: callout,
+      centre,
+      radius: sample.radius,
+      view: host,
+      place,
+      scale,
+      boxes: [...boxes, ...titles],
+      leaders,
+      rings: [],
+    });
     if (!placed) continue;
-    const hx = dot3(sample.center, host.frame.right) - host.extent.midX;
-    const hy = dot3(sample.center, host.frame.up) - host.extent.midY;
-    const [sx, sy] = toSheet(hx, hy, hostPlace, scale);
-    boxes.push(box);
+    boxes.push(placed.box);
+    leaders.push(placed.leaderLine);
     dims.push({
       kind: 'radius',
       value: group.size,
       text: callout,
-      box,
-      leader: { x: sx, y: sy },
+      box: placed.box,
+      leader: placed.tip,
+      leaderLine: placed.leaderLine,
+      feature: placed.feature,
+      radial: true,
     });
   }
 
@@ -557,6 +567,19 @@ function envelopeCentre(model) {
     }
   }
   return [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+}
+
+function profileView(axis, views) {
+  let best = views.front;
+  let bestAlign = 1;
+  for (const view of [views.front, views.right, views.top]) {
+    const align = Math.abs(dot3(axis, view.frame.eye));
+    if (align < bestAlign) {
+      bestAlign = align;
+      best = view;
+    }
+  }
+  return best;
 }
 
 function viewForCircle(circle, views) {
