@@ -98,6 +98,34 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       const cluster = (drawing.layout.front.cx + drawing.layout.right.cx) / 2;
       assert.ok(Math.abs(cluster - 210) < 40, `cone views are not centred (${cluster})`);
     }
+    const leaders = drawing.dimensions.filter((dim) => dim.leaderLine);
+    for (let i = 0; i < leaders.length; i += 1) {
+      for (let j = i + 1; j < leaders.length; j += 1) {
+        assert.equal(segmentsCross(leaders[i].leaderLine, leaders[j].leaderLine), false, `${file} leaders cross: ${leaders[i].text} and ${leaders[j].text}`);
+      }
+    }
+    for (const dim of drawing.dimensions) {
+      for (const title of drawing.titles) {
+        assert.equal(boxesOverlap(dim.box, title), false, `${file} ${dim.text} overlaps ${title.text}`);
+      }
+    }
+    const diameters = drawing.dimensions.filter((dim) => dim.kind === 'diameter');
+    if (diameters.length >= 2) {
+      const xs = diameters.map((dim) => dim.box.cx);
+      const ys = diameters.map((dim) => dim.box.cy);
+      const spread = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      assert.ok(spread > 8, `${file} diameter labels are stacked (${spread.toFixed(1)})`);
+    }
+    if (file === 'cone_50x12_v2.step') {
+      const hole = diameters.find((dim) => dim.text.includes('Ø20'));
+      assert.ok(hole, 'cone Ø20');
+      assert.equal(hole.feature.view, 'top');
+      const tip = Math.hypot(hole.leaderLine.x2 - hole.feature.x, hole.leaderLine.y2 - hole.feature.y);
+      assert.ok(Math.abs(tip - hole.feature.r) < 0.6, `leader tip is not on the hole (${tip})`);
+      assert.ok(pointLineDistance(hole.feature, hole.leaderLine) < 0.4);
+      const leaderLength = Math.hypot(hole.leaderLine.x2 - hole.leaderLine.x1, hole.leaderLine.y2 - hole.leaderLine.y1);
+      assert.ok(leaderLength < 22, `Ø20 leader is too long (${leaderLength.toFixed(1)})`);
+    }
     if (file === 'cone_50x12_v2.step') {
       const text = drawing.dimensions.map((dim) => dim.text).join(' ');
       const diameters = drawing.dimensions.filter((dim) => dim.text.includes('Ø50'));
@@ -129,6 +157,27 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
     console.log(`| ${row.file} | ${row.ms.toFixed(0)} ms | ${row.scale} | ${row.overall.map((value) => value.toFixed(2)).join(', ')} |`);
   }
 });
+
+function segmentsCross(a, b) {
+  const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const p = { x: a.x1, y: a.y1 };
+  const q = { x: a.x2, y: a.y2 };
+  const r = { x: b.x1, y: b.y1 };
+  const s = { x: b.x2, y: b.y2 };
+  const d1 = side(p, q, r);
+  const d2 = side(p, q, s);
+  const d3 = side(r, s, p);
+  const d4 = side(r, s, q);
+  if (d1 === 0 || d2 === 0 || d3 === 0 || d4 === 0) return false;
+  return (d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0);
+}
+
+function pointLineDistance(point, line) {
+  const dx = line.x2 - line.x1;
+  const dy = line.y2 - line.y1;
+  const length = Math.hypot(dx, dy) || 1;
+  return Math.abs(dy * point.x - dx * point.y + line.x2 * line.y1 - line.y2 * line.x1) / length;
+}
 
 function boxesOverlap(a, b) {
   return a.x < b.x + b.w - 0.05

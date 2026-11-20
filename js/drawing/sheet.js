@@ -151,6 +151,162 @@ function diameterText(size, axis, circles) {
   return match ? `Ø${formatDim(size)}` : formatDim(size);
 }
 
+function titleBoxes(layout) {
+  const names = { front: 'FRONT', top: 'TOP', right: 'RIGHT SIDE', iso: 'ISOMETRIC' };
+  return Object.entries(names).map(([id, name]) => {
+    const rect = viewRect(layout.place[id]);
+    const size = 2.6;
+    const w = textWidth(name, size);
+    const h = size * 1.35;
+    return { x: rect.left - 0.4, y: rect.top - 1.6 - h, w: w + 0.8, h, text: name };
+  });
+}
+
+function sheetCircle(feature, view, place, scale) {
+  if (!feature || !view) return null;
+  const align = Math.abs(dot3(feature.axis, view.frame.eye));
+  if (align < 0.75) return null;
+  const [x, y] = toSheet(
+    dot3(feature.center, view.frame.right) - view.extent.midX,
+    dot3(feature.center, view.frame.up) - view.extent.midY,
+    place[view.frame.id],
+    scale,
+  );
+  return { x, y, r: Math.max(feature.radius * scale, 0.8) };
+}
+
+function placeRadialCallout({ text, centre, radius, view, place, scale, boxes, leaders, rings }) {
+  const hostPlace = place[view.frame.id];
+  const [sx, sy] = toSheet(
+    dot3(centre, view.frame.right) - view.extent.midX,
+    dot3(centre, view.frame.up) - view.extent.midY,
+    hostPlace,
+    scale,
+  );
+  const sheetR = Math.max(radius * scale, 0.8);
+  const otherViews = ['front', 'top', 'right', 'iso']
+    .filter((id) => id !== view.frame.id)
+    .map((id) => viewRect(place[id]));
+  let best = null;
+  for (let i = 0; i < 24; i += 1) {
+    const angle = (i * Math.PI) / 12;
+    const ux = Math.cos(angle);
+    const uy = Math.sin(angle);
+    const tip = { x: sx + ux * sheetR, y: sy + uy * sheetR };
+    const half = Math.hypot(textWidth(text), 4.2) / 2;
+    for (let step = 0; step < 8; step += 1) {
+      const dist = sheetR + 3.4 + half + step * 4.2;
+      const box = makeBox(text, sx + ux * dist, sy + uy * dist);
+      if (!radialFits(box, tip, sx, sy, sheetR, boxes, leaders, rings, otherViews)) continue;
+      const from = rayBoxBoundary(box, { x: sx, y: sy });
+      const length = Math.hypot(tip.x - from.x, tip.y - from.y);
+      const outside = hitsRect(box, viewRect(hostPlace)) ? 2 : 0;
+      const score = length + outside + step;
+      if (!best || score < best.score) {
+        best = {
+          box,
+          tip,
+          score,
+          leaderLine: { x1: from.x, y1: from.y, x2: tip.x, y2: tip.y },
+          feature: { x: sx, y: sy, r: sheetR, view: view.frame.id },
+        };
+      }
+      break;
+    }
+  }
+  return best;
+}
+
+function radialFits(box, tip, sx, sy, sheetR, boxes, leaders, rings, otherViews) {
+  if (!insideFrame(box)) return false;
+  if (hitsAny(box, boxes)) return false;
+  if (circleCutsBox(box, sx, sy, sheetR)) return false;
+  if (rings.some((ring) => circleCutsBox(box, ring.x, ring.y, ring.r))) return false;
+  if (otherViews.some((rect) => hitsRect(box, rect))) return false;
+  const from = rayBoxBoundary(box, { x: sx, y: sy });
+  const line = { x1: from.x, y1: from.y, x2: tip.x, y2: tip.y };
+  if (boxes.some((other) => segmentHitsBox(line, other))) return false;
+  if (leaders.some((other) => segmentsCross(line, other))) return false;
+  return true;
+}
+
+function insideFrame(box) {
+  const left = 14;
+  const top = 14;
+  const right = SHEET.width - 14;
+  const bottom = TITLE_Y - 2;
+  if (box.x < left || box.y < top) return false;
+  if (box.x + box.w > right || box.y + box.h > bottom) return false;
+  if (box.x + box.w > TITLE_X - 1 && box.y + box.h > TITLE_Y - 1) return false;
+  return true;
+}
+
+function circleCutsBox(box, cx, cy, radius) {
+  const nearestX = Math.max(box.x, Math.min(cx, box.x + box.w));
+  const nearestY = Math.max(box.y, Math.min(cy, box.y + box.h));
+  const nearest = Math.hypot(nearestX - cx, nearestY - cy);
+  const corners = [
+    [box.x, box.y],
+    [box.x + box.w, box.y],
+    [box.x, box.y + box.h],
+    [box.x + box.w, box.y + box.h],
+  ];
+  const distances = corners.map(([x, y]) => Math.hypot(x - cx, y - cy));
+  const min = Math.min(nearest, ...distances);
+  const max = Math.max(...distances);
+  return min < radius + 0.4 && max > radius - 0.4;
+}
+
+function rayBoxBoundary(box, origin) {
+  const dx = box.cx - origin.x;
+  const dy = box.cy - origin.y;
+  const hits = [];
+  if (Math.abs(dx) > 1e-8) {
+    for (const x of [box.x, box.x + box.w]) {
+      const t = (x - origin.x) / dx;
+      const y = origin.y + t * dy;
+      if (t > 0 && y >= box.y - 0.05 && y <= box.y + box.h + 0.05) hits.push({ t, x, y });
+    }
+  }
+  if (Math.abs(dy) > 1e-8) {
+    for (const y of [box.y, box.y + box.h]) {
+      const t = (y - origin.y) / dy;
+      const x = origin.x + t * dx;
+      if (t > 0 && x >= box.x - 0.05 && x <= box.x + box.w + 0.05) hits.push({ t, x, y });
+    }
+  }
+  hits.sort((a, b) => a.t - b.t);
+  return hits[0] ? { x: hits[0].x, y: hits[0].y } : { x: box.cx, y: box.cy };
+}
+
+function segmentHitsBox(line, box) {
+  const pad = 0.3;
+  const rect = { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
+  const inside = (x, y) => x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+  if (inside(line.x1, line.y1) || inside(line.x2, line.y2)) return true;
+  const edges = [
+    { x1: rect.x, y1: rect.y, x2: rect.x + rect.w, y2: rect.y },
+    { x1: rect.x + rect.w, y1: rect.y, x2: rect.x + rect.w, y2: rect.y + rect.h },
+    { x1: rect.x, y1: rect.y + rect.h, x2: rect.x + rect.w, y2: rect.y + rect.h },
+    { x1: rect.x, y1: rect.y, x2: rect.x, y2: rect.y + rect.h },
+  ];
+  return edges.some((edge) => segmentsCross(line, edge));
+}
+
+function segmentsCross(a, b) {
+  const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const p = { x: a.x1, y: a.y1 };
+  const q = { x: a.x2, y: a.y2 };
+  const r = { x: b.x1, y: b.y1 };
+  const s = { x: b.x2, y: b.y2 };
+  const d1 = side(p, q, r);
+  const d2 = side(p, q, s);
+  const d3 = side(r, s, p);
+  const d4 = side(r, s, q);
+  if (d1 === 0 || d2 === 0 || d3 === 0 || d4 === 0) return false;
+  return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
+}
+
 function buildDimensions(model, views, layout) {
   const { place, scale } = layout;
   const boxes = [];
@@ -220,6 +376,8 @@ function buildDimensions(model, views, layout) {
   }
 
   const featureSet = collectFeatures(model);
+  const titles = titleBoxes(layout);
+  const leaders = [];
   for (const group of featureSet.diameters) {
     if (envelopeDiameters.has(formatDim(group.size))) continue;
     const sample = group.features[0];
@@ -227,34 +385,34 @@ function buildDimensions(model, views, layout) {
       ? `${group.features.length} × Ø${formatDim(group.size)}`
       : `Ø${formatDim(group.size)}`;
     const host = viewForCircle({ normal: sample.axis, center: sample.center }, views) || front;
-    const hostPlace = place[host.frame.id];
-    const rect = viewRect(hostPlace);
-    let box = makeBox(callout, rect.left + textWidth(callout) / 2 + 1, rect.top - DIM_LANE - 5);
-    let placed = false;
-    for (let step = 0; step < 8; step += 1) {
-      if (!hitsAny(box, boxes) && !hitsRect(box, rect)) {
-        placed = true;
-        break;
-      }
-      box = { ...box, y: box.y - (box.h + 1.2), cy: box.cy - (box.h + 1.2) };
-    }
-    const hx = dot3(sample.center, host.frame.right) - host.extent.midX;
-    const hy = dot3(sample.center, host.frame.up) - host.extent.midY;
-    const [sx, sy] = toSheet(hx, hy, hostPlace, scale);
-    const edge = Math.max(sample.radius * scale, 1.5);
-    const leader = {
-      x: Math.min(rect.right, Math.max(rect.left, sx + Math.sign(box.cx - sx || 1) * edge)),
-      y: Math.min(rect.bottom, Math.max(rect.top, sy)),
-    };
+    const rings = featureSet.diameters
+      .filter((other) => other !== group)
+      .map((other) => sheetCircle(other.features[0], host, place, scale))
+      .filter(Boolean);
+    const placed = placeRadialCallout({
+      text: callout,
+      centre: sample.center,
+      radius: sample.radius,
+      view: host,
+      place,
+      scale,
+      boxes: [...boxes, ...titles],
+      leaders,
+      rings,
+    });
     if (placed) {
-      boxes.push(box);
+      boxes.push(placed.box);
+      leaders.push(placed.leaderLine);
       dims.push({
         kind: 'diameter',
         value: group.size,
         text: callout,
-        box,
-        leader,
-        anchor: [box.cx, box.cy],
+        box: placed.box,
+        leader: placed.tip,
+        leaderLine: placed.leaderLine,
+        feature: placed.feature,
+        radial: true,
+        anchor: [placed.box.cx, placed.box.cy],
       });
     }
     const holes = group.features.filter((feature) => feature.hole);
@@ -342,10 +500,14 @@ function buildDimensions(model, views, layout) {
   }
 
   separateBoxes(dims);
-  for (const dim of dims) dim.box = clampToFrame(dim.box);
+  for (const dim of dims) {
+    if (!dim.radial) dim.box = clampToFrame(dim.box);
+  }
   separateBoxes(dims);
-  for (const dim of dims) dim.box = clampToFrame(dim.box);
-  return dims;
+  for (const dim of dims) {
+    if (!dim.radial) dim.box = clampToFrame(dim.box);
+  }
+  return { dims, titles };
 }
 
 function clampToFrame(box) {
@@ -369,13 +531,15 @@ function separateBoxes(dims) {
     for (let i = 0; i < dims.length; i += 1) {
       for (let j = i + 1; j < dims.length; j += 1) {
         if (!overlaps(dims[i].box, dims[j].box)) continue;
-        const shift = dims[i].box.h + 1.2;
-        dims[j].box = {
-          ...dims[j].box,
-          y: dims[j].box.y + shift,
-          cy: dims[j].box.cy + shift,
+        const mover = dims[j].radial ? i : j;
+        if (dims[mover].radial) continue;
+        const shift = dims[mover].box.h + 1.2;
+        dims[mover].box = {
+          ...dims[mover].box,
+          y: dims[mover].box.y + shift,
+          cy: dims[mover].box.cy + shift,
         };
-        if (dims[j].orient === 'h') dims[j].y = (dims[j].y || 0) + shift;
+        if (dims[mover].orient === 'h') dims[mover].y = (dims[mover].y || 0) + shift;
         moved = true;
       }
     }
@@ -513,7 +677,9 @@ export function composeSheet({ model, views, options = {} }) {
   const warnings = [...model.warnings];
   if (scaleInfo.tight) warnings.push('The part is larger than the 1:10 sheet. Views use 1:10 and may crowd the border.');
   for (const id of ['front', 'top', 'right', 'iso']) views[id].model = model;
-  const dimensions = buildDimensions(model, views, layout);
+  const built = buildDimensions(model, views, layout);
+  const dimensions = built.dims;
+  const titles = built.titles;
   const title = options.title || 'Untitled';
   const date = options.date || formatSheetDate(new Date());
   const svg = renderSvg({
@@ -536,6 +702,7 @@ export function composeSheet({ model, views, options = {} }) {
       place: layout.place[id],
     })),
     layout: layout.place,
+    titles,
     warnings,
     sheet: SHEET,
     title,
@@ -609,7 +776,12 @@ function renderDimension(dim) {
     bits.push(arrow(x, y1, -Math.PI / 2));
     bits.push(arrow(x, y2, Math.PI / 2));
   }
-  if (dim.leader) {
+  if (dim.leaderLine) {
+    const line = dim.leaderLine;
+    bits.push(`<line data-leader="1" x1="${line.x1.toFixed(2)}" y1="${line.y1.toFixed(2)}" x2="${line.x2.toFixed(2)}" y2="${line.y2.toFixed(2)}" stroke="#111" stroke-width="0.18"/>`);
+    const angle = Math.atan2(line.y2 - line.y1, line.x2 - line.x1);
+    bits.push(arrow(line.x2, line.y2, angle));
+  } else if (dim.leader) {
     const tip = dim.leader;
     const from = boxAnchor(box, tip);
     bits.push(`<line data-leader="1" x1="${from.x.toFixed(2)}" y1="${from.y.toFixed(2)}" x2="${tip.x.toFixed(2)}" y2="${tip.y.toFixed(2)}" stroke="#111" stroke-width="0.18"/>`);
