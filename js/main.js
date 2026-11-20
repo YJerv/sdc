@@ -137,6 +137,8 @@ function resetDetails() {
   stageTitle.textContent = '';
   empty.hidden = false;
   setViewsEnabled(false);
+  viewer.cancelTop();
+  showTopArm(false);
   currentResult = null;
   currentName = '';
   createButton.disabled = true;
@@ -312,9 +314,29 @@ window.addEventListener('drop', (event) => {
   if (file) void openFile(file);
 });
 
+const setTopButton = document.querySelector('#set-top');
+const setTopHint = document.querySelector('#set-top-hint');
+
+function showTopArm(armed) {
+  setTopButton.setAttribute('aria-pressed', armed ? 'true' : 'false');
+  setTopHint.hidden = !armed;
+}
+
+setTopButton.addEventListener('click', () => {
+  if (setTopButton.disabled) return;
+  viewer.armTop();
+  showTopArm(true);
+});
+document.querySelector('#set-top-cancel').addEventListener('click', () => {
+  viewer.cancelTop();
+  showTopArm(false);
+});
+viewer.onTopChosen(() => showTopArm(false));
+
 for (const button of viewButtons) {
   button.addEventListener('click', () => {
     const name = button.dataset.view;
+    if (!name) return;
     if (name === 'fit') viewer.frame();
     else viewer.frame(viewer.views[name]);
   });

@@ -10,6 +10,7 @@ import {
   toAligned,
 } from '../js/orient.js';
 import { readGridVisible, writeGridVisible } from '../js/settings.js';
+import { createTopArm } from '../js/top-arm.js';
 
 test('a clicked face normal becomes the top axis', () => {
   const clicked = [0, -1, 0];
@@ -50,6 +51,19 @@ test('a changed front face squares the part and seats it on the grid', () => {
   assert.ok(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2) < 0.05);
   assert.ok(Math.abs((Math.min(...ys) + Math.max(...ys)) / 2) < 0.05);
   assert.ok(dot(basis.y, [0, -1, 0]) < -0.7);
+});
+
+test('a click does not set the top until Set top is armed', () => {
+  const arm = createTopArm();
+  assert.equal(arm.click(), false);
+  assert.equal(arm.isArmed(), false);
+  arm.arm();
+  assert.equal(arm.isArmed(), true);
+  assert.equal(arm.click(), true);
+  assert.equal(arm.click(), false);
+  arm.arm();
+  arm.cancel();
+  assert.equal(arm.click(), false);
 });
 
 test('the grid choice is remembered', () => {

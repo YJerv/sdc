@@ -10,6 +10,7 @@ const ASSETS = [
   './js/step-worker.js',
   './js/orient.js',
   './js/settings.js',
+  './js/top-arm.js',
   './js/drawing/geometry.js',
   './js/drawing/features.js',
   './js/drawing/sheet.js',

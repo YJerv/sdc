@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { basisForFront, basisFromUp, seatOnGrid } from './orient.js';
+import { createTopArm } from './top-arm.js';
 
 /**
  * Z-up, millimetres. Directions are from the part centre out to the camera.
@@ -76,6 +77,8 @@ export function createViewer(canvas) {
     y: [0, 1, 0],
     z: [0, 0, 1],
   };
+  const topArm = createTopArm();
+  let onTopChosen = () => {};
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let pointerDown = null;
@@ -377,9 +380,12 @@ export function createViewer(canvas) {
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
+    if (!topArm.isArmed()) return;
     const hit = raycaster.intersectObject(model, true).find((item) => item.object.isMesh && item.face);
     if (!hit) return;
+    topArm.click();
     setTopFromNormal(hit.face.normal);
+    onTopChosen();
   });
 
   return {
@@ -388,6 +394,18 @@ export function createViewer(canvas) {
     frame,
     getBasis: () => basis,
     setFrontFace,
+    armTop() {
+      topArm.arm();
+    },
+    cancelTop() {
+      topArm.cancel();
+    },
+    isTopArmed() {
+      return topArm.isArmed();
+    },
+    onTopChosen(listener) {
+      onTopChosen = listener;
+    },
     setGridVisible(visible) {
       gridVisible = Boolean(visible);
       if (!gridVisible && grid) {
