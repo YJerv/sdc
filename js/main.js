@@ -119,6 +119,8 @@ function clearError() {
 
 function setViewsEnabled(enabled) {
   for (const button of viewButtons) button.disabled = !enabled;
+  const setTop = document.querySelector('#set-top');
+  if (setTop) setTop.disabled = !enabled;
 }
 
 function resetDetails() {
