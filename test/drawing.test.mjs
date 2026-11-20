@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -7,6 +8,7 @@ import { createDrawing } from '../js/drawing/create.js';
 import { prepareModel } from '../js/drawing/geometry.js';
 import { collectFeatures, withoutNearDuplicates } from '../js/drawing/features.js';
 import { formatDim, viewFrames } from '../js/drawing/geometry.js';
+import { JET_LOGO } from '../js/drawing/jet-logo.js';
 import { pdfFromJpeg } from '../js/pdf-image.js';
 import { canExport, exportPolicy } from '../js/export-policy.js';
 import { STEP_IMPORT_PARAMS, boundingBox, isStepFilename } from '../js/step-model.js';
@@ -26,6 +28,8 @@ test('sheet helpers', () => {
   assert.ok(frames.front.up[2] > 0.9);
   assert.ok(frames.front.right[0] > 0.9);
   assert.equal(exportPolicy.unlocked, true);
+  const logoFile = readFileSync(new URL('../icons/jet-logo.png', import.meta.url)).toString('base64');
+  assert.equal(JET_LOGO, `data:image/png;base64,${logoFile}`);
   const kept = withoutNearDuplicates(
     [{ size: 48.3, features: [{ hole: false }] }, { size: 46, features: [{ hole: false }] }, { size: 20, features: [{ hole: true }] }],
     [50],
@@ -75,6 +79,8 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
     }
     assert.ok(drawing.layout.top.cy < drawing.layout.front.cy, `${file} top view is above the front`);
     assert.ok(drawing.layout.right.cx > drawing.layout.front.cx, `${file} right view is to the right`);
+    assert.match(drawing.svg, /id="title-block"/);
+    assert.ok(drawing.svg.includes(JET_LOGO), `${file} title block has no JET logo`);
     assert.match(drawing.svg, /THIRD ANGLE/);
     assert.match(drawing.svg, /Created with STEP Drawing Creator/);
     assert.match(drawing.svg, /MILLIMETRES/);

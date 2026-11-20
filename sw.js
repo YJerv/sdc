@@ -1,4 +1,4 @@
-const CACHE = 'sdc-shell-2';
+const CACHE = 'sdc-shell-3';
 
 const ASSETS = [
   './index.html',
@@ -14,6 +14,7 @@ const ASSETS = [
   './js/drawing/geometry.js',
   './js/drawing/features.js',
   './js/drawing/sheet.js',
+  './js/drawing/jet-logo.js',
   './js/drawing/create.js',
   './js/export-policy.js',
   './js/export-client.js',

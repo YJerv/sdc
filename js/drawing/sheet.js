@@ -5,6 +5,7 @@
 
 import { formatDim } from './geometry.js';
 import { collectFeatures, snapCentre, snapLength } from './features.js';
+import { JET_LOGO } from './jet-logo.js';
 
 export const SHEET = { width: 420, height: 297 };
 const MARGIN = 10;
@@ -712,7 +713,7 @@ export function composeSheet({ model, views, options = {} }) {
     scaleLabel: scaleInfo.label,
     title,
     date,
-    logoHref: options.logoHref || 'icons/jet-logo.png',
+    logoHref: options.logoHref || JET_LOGO,
   });
   return {
     svg,
