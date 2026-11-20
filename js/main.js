@@ -414,11 +414,15 @@ function scaleIndex(label) {
   return index < 0 ? 3 : index;
 }
 
-function showScale(label) {
-  const index = scaleIndex(label);
+function showScale(drawing) {
+  const label = drawing.scaleLabel;
+  const maxIndex = scaleIndex(drawing.maxScale || label);
+  const index = Math.min(scaleIndex(label), maxIndex);
   for (const id of ['sheet-scale', 'edit-scale']) {
     const input = document.querySelector(`#${id}`);
-    if (input) input.value = String(index);
+    if (!input) continue;
+    input.max = String(maxIndex);
+    input.value = String(index);
   }
   for (const id of ['sheet-scale-label', 'edit-scale-label']) {
     const node = document.querySelector(`#${id}`);
@@ -441,6 +445,7 @@ function redrawAtScale(index) {
         basis: viewer.getBasis(),
         scale: drawingScale,
       });
+      drawingScale = drawing.scaleLabel;
       showSheet(drawing);
       if (editing) openEdit();
       setBusy(false);
@@ -459,7 +464,7 @@ function stepScale(delta) {
 function showSheet(drawing) {
   currentDrawing = drawing;
   currentSvg = drawing.svg;
-  showScale(drawing.scaleLabel);
+  showScale(drawing);
   sheetZoom = 1;
   sheetPanX = 0;
   sheetPanY = 0;

@@ -59,16 +59,19 @@ export const SHEET_SCALES = [
   { value: 5, label: '5:1' },
 ];
 
+function fittingScales(modelViews) {
+  const fitting = SHEET_SCALES.filter((scale) => layoutFor(modelViews, scale.value).fits);
+  return fitting.length ? fitting : [SHEET_SCALES[0]];
+}
+
 function chooseScale(modelViews, forced) {
+  const fitting = fittingScales(modelViews);
   const requested = SHEET_SCALES.find((scale) => scale.label === forced || scale.value === forced);
   if (requested) {
-    return { ...requested, tight: !layoutFor(modelViews, requested.value).fits };
+    const capped = [...fitting].reverse().find((scale) => scale.value <= requested.value) || fitting[0];
+    return { ...capped, tight: !layoutFor(modelViews, capped.value).fits, fitting };
   }
-  const largestFirst = [...SHEET_SCALES].reverse();
-  for (const scale of largestFirst) {
-    if (layoutFor(modelViews, scale.value).fits) return scale;
-  }
-  return { ...SHEET_SCALES[0], tight: true };
+  return { ...fitting[fitting.length - 1], fitting };
 }
 
 function layoutFor(views, scale) {
@@ -838,6 +841,8 @@ export function composeSheet({ model, views, options = {} }) {
     svg,
     scale: scaleInfo.value,
     scaleLabel: scaleInfo.label,
+    maxScale: scaleInfo.fitting[scaleInfo.fitting.length - 1].label,
+    fittingScales: scaleInfo.fitting.map((scale) => scale.label),
     dimensions,
     views: ['front', 'top', 'right', 'iso'].map((id) => ({
       id,

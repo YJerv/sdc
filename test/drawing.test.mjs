@@ -170,14 +170,24 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
       const positions = drawing.dimensions.filter((dim) => dim.kind === 'position').map((dim) => dim.text);
       assert.ok(positions.includes('25'), `cone positions ${positions.join(', ')}`);
       assert.equal(positions.some((text) => text === '24.9' || text === '24.8'), false);
-      const bigger = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '5:1' });
-      const smaller = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '1:2' });
-      assert.equal(bigger.scaleLabel, '5:1');
-      assert.equal(smaller.scaleLabel, '1:2');
-      assert.ok(bigger.layout.front.w > drawing.layout.front.w);
-      assert.ok(smaller.layout.front.w < drawing.layout.front.w);
-      assert.match(bigger.svg, />5:1</);
-      assert.match(smaller.svg, />1:2</);
+      const one = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '1:1' });
+      const two = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '2:1' });
+      const oneSize = viewGeometrySize(one.svg, 'front');
+      const twoSize = viewGeometrySize(two.svg, 'front');
+      assert.ok(Math.abs(twoSize.w / oneSize.w - 2) < 0.05, `width ${twoSize.w} vs ${oneSize.w}`);
+      assert.ok(Math.abs(twoSize.h / oneSize.h - 2) < 0.05, `height ${twoSize.h} vs ${oneSize.h}`);
+      assert.ok(Math.abs(two.layout.front.w / one.layout.front.w - 2) < 0.02);
+      assert.match(two.svg, />2:1</);
+      const capped = createDrawing(result, { title: 'cone', date: '19 Nov 2026', scale: '5:1' });
+      assert.equal(capped.scaleLabel, capped.maxScale);
+      assert.ok(capped.scale <= 2, `5:1 was not capped (${capped.scaleLabel})`);
+      for (const id of ['front', 'top', 'right', 'iso']) {
+        const place = capped.layout[id];
+        assert.ok(place.cx - place.w / 2 >= 8, `${id} left`);
+        assert.ok(place.cx + place.w / 2 <= 412, `${id} right`);
+        assert.ok(place.cy - place.h / 2 >= 8, `${id} top`);
+        assert.ok(place.cy + place.h / 2 <= 230, `${id} bottom`);
+      }
       const frame = viewFrames().iso;
       const model = prepareModel(result);
       const hole = model.circles.holes.find((circle) => circle.diameter > 18 && circle.diameter < 22);
@@ -240,6 +250,20 @@ test('every fixture produces a third-angle drawing', { timeout: 180000 }, async 
     console.log(`| ${row.file} | ${row.ms.toFixed(0)} ms | ${row.scale} | ${row.overall.map((value) => value.toFixed(2)).join(', ')} |`);
   }
 });
+
+function viewGeometrySize(svg, id) {
+  const chunk = svg.split(`id="view-${id}"`)[1].split('</g>')[0];
+  const xs = [];
+  const ys = [];
+  for (const match of chunk.matchAll(/[ML](-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)) {
+    xs.push(Number(match[1]));
+    ys.push(Number(match[2]));
+  }
+  return {
+    w: Math.max(...xs) - Math.min(...xs),
+    h: Math.max(...ys) - Math.min(...ys),
+  };
+}
 
 function boxOutsideCircle(box, cx, cy, radius) {
   const nearestX = Math.max(box.x, Math.min(cx, box.x + box.w));
